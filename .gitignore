@@ -1,0 +1,10 @@
+.env
+.next/
+.pytest_cache/
+__pycache__/
+*.pyc
+node_modules/
+fixtures/media/*.mp4
+fixtures/media/*.mov
+fixtures/media/*.mkv
+fixtures/media/*.webm

@@ -1,0 +1,44 @@
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #101412;
+  color: #f2f5f1;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+main {
+  margin: 0 auto;
+  max-width: 880px;
+  padding: 48px 24px;
+}
+
+.panel {
+  border: 1px solid #314139;
+  border-radius: 8px;
+  padding: 24px;
+  background: #17201b;
+}
+
+.label {
+  color: #97b5a6;
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+h1 {
+  font-size: 36px;
+  line-height: 1.1;
+  margin: 0 0 16px;
+}
+
+p {
+  color: #d8e1db;
+  line-height: 1.6;
+}
+
+code {
+  background: #0b0f0d;
+  border-radius: 4px;
+  padding: 2px 6px;
+}

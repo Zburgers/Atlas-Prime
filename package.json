@@ -1,0 +1,11 @@
+{
+  "name": "atlas-prime",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "test": "npm --workspace apps/web test",
+    "lint": "npm --workspace apps/web run lint"
+  }
+}

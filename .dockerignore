@@ -1,0 +1,14 @@
+.git
+.github
+.next
+.pytest_cache
+__pycache__
+node_modules
+*.pyc
+.env
+memory
+docs
+fixtures/media/*.mp4
+fixtures/media/*.mov
+fixtures/media/*.mkv
+fixtures/media/*.webm
