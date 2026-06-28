@@ -9,6 +9,7 @@ help:
 		'  make down       Stop the local stack' \
 		'  make logs       Follow service logs' \
 		'  make ps         Show compose service status' \
+		'  make db-upgrade Run API Alembic migrations' \
 		'  make test       Run API and web tests' \
 		'  make lint       Run lightweight syntax/config checks' \
 		'  make smoke      Run Sector H stack smoke check' \
@@ -33,6 +34,10 @@ logs:
 .PHONY: ps
 ps:
 	$(COMPOSE) ps
+
+.PHONY: db-upgrade
+db-upgrade: env
+	$(COMPOSE) run --rm --build api alembic upgrade head
 
 .PHONY: test
 test: env

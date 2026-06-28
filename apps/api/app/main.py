@@ -7,20 +7,15 @@ from botocore.config import Config
 from fastapi import FastAPI
 from redis.asyncio import from_url as redis_from_url
 
+from app.api.admin import router as admin_router
+from app.api.videos import router as videos_router
+from app.domain.status import CANONICAL_VIDEO_STATUS_VALUES, PRIVACY_VALUES
 
-STATUS_VALUES = [
-    "draft",
-    "uploading",
-    "uploaded",
-    "queued",
-    "probing",
-    "processing",
-    "ready",
-    "failed",
-]
-PRIVACY_VALUES = ["private", "public", "unlisted"]
+STATUS_VALUES = CANONICAL_VIDEO_STATUS_VALUES
 
 app = FastAPI(title="Atlas Prime API", version="0.0.1")
+app.include_router(videos_router)
+app.include_router(admin_router)
 
 
 def _env(name: str, default: str = "") -> str:
@@ -103,7 +98,8 @@ async def mvp_contract() -> dict[str, Any]:
             "processed_hls_prefix": "processed/{video_id}/hls/",
         },
         "smoke_coverage": {
-            "upload_process_playback_metadata": "contract-only-until-sectors-c-d-e-implement-endpoints",
+            "core_video_metadata_and_processing_status": "implemented-by-sector-b",
+            "upload_process_playback_metadata": "upload-storage-worker-proxy-pending-sectors-c-d-e",
             "cross_user_private_playback_denial": "pending-auth-fixtures-from-sector-f",
         },
     }
