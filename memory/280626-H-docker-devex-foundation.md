@@ -3,7 +3,7 @@
 Sector: H testing, DevEx, and CI
 Agent: Codex
 Date: 28-06-2026
-Branch/Commit: main / uncommitted
+Branch/Commit: main / commited - 50710216cf1ff69bf1ce7fa377d873b973fd8e90 
 
 ## What changed
 - Added minimal runnable monorepo scaffold for Next.js web, FastAPI API, Celery media worker, PostgreSQL, Redis, and MinIO.
