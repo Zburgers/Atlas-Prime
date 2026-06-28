@@ -93,18 +93,20 @@ If validation cannot run, explicitly write `Not run` in your memory entry with t
 - Sanitize error messages for user safety
 - Developer logs must include enough context (video_id, job_id, sector/stage)
 
-## Stack Choices
+## Confirmed Stack (MVP)
 
-The default stack for this project:
-- Frontend: Next.js or React
-- API: FastAPI or Express/NestJS
-- Database: PostgreSQL
-- Queue: Redis-backed (Celery/RQ/BullMQ)
-- Worker: FFmpeg + ffprobe
-- Storage: Local filesystem first; MinIO/S3-compatible later
-- Player: hls.js
+These choices are finalized for the MVP build:
 
-Propose alternatives only if they preserve the MVP loop and record the decision.
+- **Frontend**: Next.js (TypeScript/React)
+- **API**: FastAPI with SQLAlchemy ORM
+- **Database**: PostgreSQL (Dockerized) with Alembic migrations
+- **Queue**: Redis + Celery
+- **Auth**: Clerk (external provider, JWT-based)
+- **Storage**: MinIO (S3-compatible, from day one)
+- **Worker**: FFmpeg + ffprobe (Python-based worker)
+- **Player**: hls.js
+
+All agents must use these choices unless recording an ADR-level decision for alternatives.
 
 ## Essential Documentation Links
 
