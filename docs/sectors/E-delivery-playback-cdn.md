@@ -7,12 +7,11 @@ Primary mission: serve generated HLS outputs safely and play them in the browser
 
 Build the delivery/playback path:
 
-- Static serving of processed HLS assets.
+- Authenticated FastAPI proxy serving processed HLS assets from MinIO.
 - Playback metadata endpoint integration.
 - Browser HLS player in the Next.js app.
 - Basic quality/error/loading events.
 - Cache-header pathing that can later be moved behind CDN.
-- Optional signed playback URL support if Sector F is ready.
 
 ## Out of scope
 
@@ -36,7 +35,7 @@ From Sector D:
 
 From Sector F:
 
-- Access checks and signed URL/token rules if implemented.
+- Access checks and privacy rules.
 
 From Sector A:
 
@@ -64,16 +63,26 @@ Example shape:
 {
   "video_id": "...",
   "status": "ready",
-  "hls_master_url": "https://.../processed/{video_id}/hls/master.m3u8",
-  "thumbnail_url": "https://.../processed/{video_id}/hls/thumbnail.jpg"
+  "hls_master_url": "https://.../videos/{video_id}/hls/master.m3u8",
+  "thumbnail_url": "https://.../videos/{video_id}/hls/thumbnail.jpg"
 }
 ```
 
-For local MVP, the URL may be a presigned MinIO URL or an API-served/proxied URL, but the abstraction should allow CDN later and the frontend must not guess bucket/object paths.
+For local MVP, playback URLs are API-owned HLS proxy URLs backed by MinIO objects under `processed/{video_id}/hls/`. The frontend must not guess bucket/object paths.
+
+The API proxy must:
+
+- Validate the video is `ready`.
+- Enforce privacy and ownership/access rules before serving playlists, thumbnails, and segments.
+- Restrict requests to an allowlisted HLS path rooted at `processed/{video_id}/hls/`.
+- Prevent `..`, absolute paths, bucket switching, and arbitrary object reads.
+- Set reasonable cache headers for immutable segment files.
+
+Direct presigned MinIO playback and CDN/static delivery are future optimizations. They must not replace the proxy until private-by-default playback still works without exposing processed objects publicly.
 
 ## Deliverables
 
-- Static serving configuration or route.
+- FastAPI HLS proxy route.
 - HLS playback integration.
 - Watch-page integration with Sector A.
 - User-visible playback error handling.
@@ -83,18 +92,18 @@ For local MVP, the URL may be a presigned MinIO URL or an API-served/proxied URL
 
 ## Acceptance criteria
 
-- [ ] A ready video's `master.m3u8` can be fetched through an HTTP URL.
+- [ ] A ready video's `master.m3u8` can be fetched through the API HLS route.
 - [ ] Browser watch page plays generated HLS output.
 - [ ] Player handles loading, error, and unsupported-browser cases.
 - [ ] Playback URL is obtained from API.
-- [ ] Private/non-owned video playback is denied if privacy/auth is enabled.
-- [ ] Static delivery does not expose arbitrary filesystem browsing.
+- [ ] Private/non-owned video playback is denied.
+- [ ] Delivery does not expose arbitrary filesystem or MinIO object browsing.
 - [ ] Cache headers are reasonable for immutable segment files.
 - [ ] Local delivery path can later be fronted by CDN without changing D's output format.
 
 ## Suggested implementation order
 
-1. Serve processed HLS directory safely.
+1. Add API HLS proxy route for processed objects.
 2. Add playback metadata endpoint integration.
 3. Add player library/component.
 4. Wire watch page.

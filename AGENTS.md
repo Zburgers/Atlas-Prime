@@ -108,6 +108,12 @@ These choices are finalized for the MVP build:
 
 All agents must use these choices unless recording an ADR-level decision for alternatives.
 
+## Confirmed MVP Interface Defaults
+
+- **Privacy**: new videos default to `private`; ready videos remain private unless the owner explicitly changes them to `public` or `unlisted`.
+- **Upload**: browser uploads go through FastAPI, which validates and writes originals to MinIO. Direct presigned browser-to-MinIO upload is deferred.
+- **Playback**: hls.js loads API-owned HLS URLs served by a FastAPI proxy over MinIO processed objects. Direct public MinIO delivery and CDN delivery are deferred until private playback remains protected.
+
 ## Essential Documentation Links
 
 - Apple HLS: https://developer.apple.com/documentation/http-live-streaming

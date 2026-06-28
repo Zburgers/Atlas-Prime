@@ -11,6 +11,7 @@ Build the backend foundation:
 - Database schema/migrations with SQLAlchemy ORM and Alembic.
 - Video domain model.
 - Video lifecycle/status machine.
+- Private-by-default video privacy model.
 - API endpoints for video metadata and processing status.
 - Job record model.
 - Clean service boundaries for upload, processing, playback, and auth sectors.
@@ -65,6 +66,8 @@ If the implementation uses enums, these exact string values are preferred for cl
 ## Deliverables
 
 - Initial schema/migrations for users, videos, renditions, processing jobs, and optionally playback events.
+- User identity fields should map to Clerk, including a durable `clerk_user_id`; do not add password storage for MVP.
+- Video schema should include `privacy` with MVP values `private`, `public`, and `unlisted`, defaulting to `private`.
 - FastAPI route skeletons for core video operations.
 - Status transition helpers or service functions.
 - Error model for user-safe and developer-facing errors.
@@ -79,6 +82,8 @@ If the implementation uses enums, these exact string values are preferred for cl
 - [ ] Video status can transition through the canonical lifecycle.
 - [ ] Invalid status transitions are rejected or explicitly handled.
 - [ ] Video ownership is represented in the schema.
+- [ ] Clerk user identity is represented without custom password fields.
+- [ ] Video privacy defaults to `private`.
 - [ ] Processing jobs are durable and queryable.
 - [ ] Renditions can be stored per video.
 - [ ] API returns stable, documented response shapes.

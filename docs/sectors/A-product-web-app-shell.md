@@ -7,7 +7,7 @@ Primary mission: make the streaming platform usable and visible in the browser.
 
 Build the MVP user-facing web experience:
 
-- Next.js TypeScript app shell and routes.
+- Next.js TypeScript app shell and App Router routes.
 - Clerk auth integration points.
 - Video library page.
 - Upload/create video flow.
@@ -43,7 +43,7 @@ From Sector F:
 
 From Sector E:
 
-- Playback URL/manifest endpoint.
+- Playback metadata endpoint and API-owned HLS route.
 - Player event endpoint if implemented.
 
 From Sector G:
@@ -56,8 +56,9 @@ From Sector G:
 - Clerk-wired sign-in/sign-up entry points or guarded routes as appropriate.
 - Video list page.
 - Create/upload video page.
+- API-mediated upload UI that posts through FastAPI rather than directly to MinIO.
 - Processing status component showing at least: queued, probing, processing, ready, failed.
-- Watch page with player container.
+- Watch page with hls.js player container.
 - Failed-state display with user-safe message.
 - Empty/loading/error states.
 - Minimal responsive layout.
@@ -67,10 +68,12 @@ From Sector G:
 - [ ] User can navigate from video list to upload/create page.
 - [ ] User can upload/select a local video through the UI when API is ready.
 - [ ] UI shows backend video status without inventing incompatible states.
+- [ ] New videos are treated as private by default in create/edit UI.
 - [ ] Failed processing is visible and not treated as infinite loading.
-- [ ] Watch page can play a provided HLS URL once Sector E is ready.
+- [ ] Watch page can play API-owned HLS URLs once Sector E is ready.
 - [ ] Unauthorized/forbidden API responses show clear UI feedback.
 - [ ] UI does not hardcode local filesystem paths.
+- [ ] UI does not hardcode MinIO bucket/object paths.
 - [ ] At least one UI smoke path is documented.
 
 ## Suggested implementation order

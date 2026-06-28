@@ -8,13 +8,14 @@ Primary mission: make the project easy to run, test, and verify repeatedly.
 Build the local engineering foundation:
 
 - Repo structure recommendation.
-- Docker Compose for web/api/database/queue/worker/MinIO where applicable.
+- Docker Compose for web/api/database/queue/worker/MinIO.
 - `.env.example`.
 - Makefile or task runner.
 - Test commands.
 - Sample media fixture strategy.
 - CI checks.
 - Smoke test for upload -> process -> playback metadata.
+- Smoke test for API-mediated upload and API-proxied HLS playback.
 
 ## Out of scope
 
@@ -78,6 +79,7 @@ This is a recommendation, not a hard requirement. If the repo is already structu
 - [ ] Worker can be started locally.
 - [ ] Tests can be run with one documented command.
 - [ ] Smoke test path is documented even if initially partial.
+- [ ] Smoke test covers private-by-default playback denial for a different user when auth test fixtures exist.
 - [ ] Sample media fixture is small and legal to keep/use.
 - [ ] CI does not require local secrets.
 - [ ] Environment variables are documented.

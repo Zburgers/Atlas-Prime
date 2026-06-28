@@ -14,6 +14,7 @@ Build visibility for:
 - Upload/storage failures.
 - MinIO storage reachability when relevant.
 - Playback errors/events if implemented.
+- API HLS proxy failures.
 - Basic admin/debug dashboard or endpoints.
 - Structured logs where feasible.
 
@@ -44,6 +45,7 @@ From Sector D:
 From Sector E:
 
 - Playback events/errors.
+- HLS proxy access and object-serving failures.
 
 From Sector H:
 
@@ -55,6 +57,7 @@ From Sector H:
 - Admin/debug job list endpoint or page.
 - Structured log conventions.
 - Processing failure visibility.
+- Playback proxy failure visibility.
 - Basic metrics counters/timings if feasible.
 - Operational runbook notes.
 
@@ -65,6 +68,7 @@ From Sector H:
 - [ ] Processing jobs can be listed with status and failure reason.
 - [ ] A failed transcode can be debugged from DB/logs without guessing.
 - [ ] Upload failures are distinguishable from processing failures.
+- [ ] Playback authorization failures are distinguishable from missing processed objects.
 - [ ] User-facing error messages are sanitized.
 - [ ] Developer-facing logs include enough context: video_id, job_id, sector/stage.
 - [ ] Admin/debug endpoints are protected if auth exists.

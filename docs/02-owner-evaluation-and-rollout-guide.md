@@ -27,7 +27,7 @@ Then run:
 | D — Media Processing/Packaging | B, C, H | Convert uploaded media to HLS. |
 | A — Product/Web Shell | B, F, H | Show upload/list/watch/status UX, initially with mocks if needed. |
 
-Wave 1 should make the core path visible, even if rough.
+Wave 1 should make the core path visible, even if rough. Upload implementation should use the MVP default browser -> FastAPI -> MinIO path.
 
 ### Wave 2 — playback and operational hardening
 
@@ -35,7 +35,7 @@ Then run:
 
 | Sector | Depends on | Goal |
 |---|---|---|
-| E — Delivery/Playback/CDN | B, C, D, F | Play generated HLS in browser through clean playback URLs. |
+| E — Delivery/Playback/CDN | B, C, D, F | Play generated HLS in browser through API-owned playback URLs. |
 | G — Observability/Admin/Ops | B, C, D, E, H | Make failures debuggable and processing state visible. |
 
 Wave 2 should make the MVP reliable enough to demo.
@@ -108,16 +108,19 @@ Do not call the MVP done until all of these are true:
 - [ ] Database migrations apply cleanly.
 - [ ] User can sign up or log in.
 - [ ] User can create a video record.
+- [ ] New video defaults to `private`.
 - [ ] User can upload a small MP4.
+- [ ] Upload goes through the FastAPI upload endpoint and stores the original in MinIO.
 - [ ] Original media is stored in the expected storage layout.
 - [ ] Worker can probe the original file.
 - [ ] Worker can generate at least 720p and 360p HLS outputs where source quality allows.
 - [ ] `master.m3u8` is generated.
 - [ ] Thumbnail is generated.
 - [ ] Video status transitions to `ready`.
-- [ ] Watch page plays the video in a modern desktop browser.
+- [ ] Watch page plays the video in a modern desktop browser through the API HLS proxy.
 - [ ] Bad/corrupt upload reaches a visible `failed` state.
 - [ ] User A cannot edit/delete/process User B's video.
+- [ ] User A cannot play User B's private video.
 - [ ] Logs show enough information to debug failed processing.
 - [ ] Tests/smoke checks exist for critical path.
 - [ ] Every sector has at least one `memory/` entry.
@@ -157,6 +160,7 @@ The smoke test should verify:
 5. Sample video can be processed.
 6. HLS output exists.
 7. Playback manifest endpoint returns expected data.
+8. API HLS route can serve the manifest/segment for an authorized user and deny an unauthorized user.
 
 ## 7. Decision escalation guide
 

@@ -1,4 +1,4 @@
-# Ground Truth MVP Spec — Learning Streaming Platform
+# Ground Truth MVP Spec — Atlas Prime
 
 Status: canonical planning document  
 Audience: all sector agents and the human engineering owner  
@@ -6,7 +6,7 @@ Last updated: 28-06-2026
 
 ## 1. Mission
 
-Build a from-scratch, self-hostable video-on-demand streaming platform for learning purposes.
+Build Atlas Prime: a from-scratch, self-hostable video-on-demand streaming platform for learning purposes.
 
 The MVP must prove this complete loop:
 
@@ -41,7 +41,7 @@ The MVP is a small YouTube-like VOD system, not a full public platform.
 - Basic video library/list page.
 - Basic watch page.
 - Basic creator dashboard showing processing state and failure reasons.
-- Local-first storage with a clean path to object storage later.
+- MinIO-backed object storage from day one.
 - Minimal but reliable logs, error states, and handoff notes.
 - Tests and smoke validation for the critical upload -> process -> playback path.
 
@@ -64,23 +64,26 @@ The MVP is a small YouTube-like VOD system, not a full public platform.
 
 These may become future phases, but they must not block the first complete VOD loop.
 
-## 3. Architecture assumptions
+## 3. Confirmed MVP architecture
 
-The default stack for the MVP is:
+The confirmed stack for Atlas Prime MVP is:
 
-| Layer | Default choice | Rationale |
+| Layer | Confirmed choice | Rationale |
 |---|---|---|
-| Frontend | Next.js or React | Fast product iteration, simple watch/upload pages |
-| API | FastAPI or Express/NestJS | Clean HTTP contracts and easy file/job orchestration |
+| Frontend | Next.js with TypeScript/React | Fast product iteration, App Router-compatible routes, simple watch/upload pages |
+| API | FastAPI | Clean HTTP contracts, Python media orchestration, straightforward dependency injection |
+| ORM/migrations | SQLAlchemy ORM + Alembic | Durable schema management and explicit database evolution |
 | Database | PostgreSQL | Durable relational state and predictable querying |
-| Queue | Redis-backed queue: Celery/RQ/BullMQ | Simple background processing |
+| Queue | Redis + Celery | Standard Python background processing stack for media jobs |
 | Worker | FFmpeg + ffprobe | Direct exposure to media processing fundamentals |
-| Storage | Local filesystem first; MinIO/S3-compatible later | Simpler MVP, clean migration path |
-| Delivery | Static file serving/Nginx first; CDN later | HLS files are static HTTP assets |
-| Player | hls.js or equivalent | Browser HLS playback with MSE support |
-| Local orchestration | Docker Compose | Repeatable dev environment |
+| Auth | Clerk with JWT-backed API verification | Outsources auth while preserving ownership checks in the API |
+| Storage | MinIO/S3-compatible object storage from day one | Same object-storage contract for API, worker, and future deployment |
+| Upload transport | API-mediated upload through FastAPI into MinIO | Simplest MVP validation/auth path; presigned direct upload is deferred |
+| Delivery | Authenticated FastAPI HLS proxy backed by MinIO | Preserves private-by-default playback without making MinIO objects public |
+| Player | hls.js on an HTML video element | Browser HLS playback with MSE support |
+| Local orchestration | Docker Compose | Repeatable dev environment for web, API, PostgreSQL, Redis, worker, and MinIO |
 
-Agents may propose alternatives only if they preserve the MVP loop and record the decision in `memory/`.
+Agents must use these choices unless the human owner explicitly expands scope and the change is recorded as an ADR-level memory entry.
 
 ## 4. Canonical video lifecycle
 
@@ -157,7 +160,7 @@ The exact schema may evolve, but the following domain objects are required.
 
 - `id`
 - `email`
-- `password_hash` or external auth identity
+- `clerk_user_id`
 - `created_at`
 
 ### `videos`
@@ -166,6 +169,7 @@ The exact schema may evolve, but the following domain objects are required.
 - `owner_id`
 - `title`
 - `description`
+- `privacy`, default `private`
 - `status`
 - `original_storage_key`
 - `hls_master_storage_key`
@@ -208,7 +212,7 @@ The exact schema may evolve, but the following domain objects are required.
 
 ### `playback_events`
 
-MVP optional but strongly preferred for learning player observability.
+MVP optional for the first vertical slice, but strongly preferred for learning player observability once playback works.
 
 - `id`
 - `user_id`
@@ -224,8 +228,6 @@ MVP optional but strongly preferred for learning player observability.
 Exact endpoint names may vary, but the MVP must expose equivalent capabilities.
 
 ```txt
-POST   /auth/register
-POST   /auth/login
 GET    /me
 
 POST   /videos
@@ -235,20 +237,76 @@ PATCH  /videos/{video_id}
 DELETE /videos/{video_id}
 
 POST   /videos/{video_id}/upload
-POST   /videos/{video_id}/complete-upload
 POST   /videos/{video_id}/process
 GET    /videos/{video_id}/processing-status
 
 GET    /videos/{video_id}/playback
+GET    /videos/{video_id}/hls/{path}
 POST   /videos/{video_id}/events
 
 GET    /admin/jobs
 GET    /admin/videos/{video_id}/debug
 ```
 
-The frontend must not guess filesystem paths. It should ask the API for playback information.
+Authentication is provided by Clerk. The API must verify Clerk-issued identity/session tokens and must not implement custom password storage for MVP.
 
-## 8. Security baseline
+The frontend must not guess filesystem paths or MinIO bucket/object paths. It should ask the API for playback information.
+
+## 8. MVP interface decisions
+
+These decisions are binding MVP defaults.
+
+### 8.1 Privacy default
+
+Ready videos default to `private`.
+
+Minimum privacy values:
+
+```txt
+private, public, unlisted
+```
+
+MVP behavior:
+
+- `draft`, `uploading`, `uploaded`, `queued`, `probing`, `processing`, and `failed` videos are owner-only.
+- New videos are created with `privacy = private`.
+- `ready` videos remain owner-only unless the owner explicitly changes privacy.
+- `public` videos may be viewed by anyone.
+- `unlisted` videos may be viewed by anyone with the link, but are excluded from public listing/search surfaces.
+- Paid/subscriber access is out of scope.
+
+### 8.2 Upload transport
+
+The MVP upload path is API-mediated:
+
+```txt
+browser -> FastAPI upload endpoint -> MinIO original object
+```
+
+Required behavior:
+
+- FastAPI performs auth, ownership checks, size limits, media validation, and status transitions.
+- FastAPI writes the original object to MinIO using controlled storage keys.
+- Successful upload transitions to `uploaded`, then enqueues Celery and transitions to `queued` when the job is created.
+- Presigned direct-to-MinIO uploads are explicitly deferred until the API-mediated path works end to end.
+
+### 8.3 Playback delivery
+
+The MVP playback path is an authenticated API proxy:
+
+```txt
+browser/hls.js -> FastAPI playback/HLS route -> MinIO processed object
+```
+
+Required behavior:
+
+- `GET /videos/{video_id}/playback` returns API-owned playback URLs, not raw bucket paths.
+- HLS playlist and segment requests are served through an allowlisted route such as `GET /videos/{video_id}/hls/{path}`.
+- The route validates video readiness, privacy, and ownership/access before serving objects from `processed/{video_id}/hls/`.
+- Path traversal and arbitrary bucket access must be prevented.
+- CDN or presigned-MinIO delivery can replace the proxy later without changing the worker output layout.
+
+## 9. Security baseline
 
 MVP security is basic but non-negotiable.
 
@@ -257,30 +315,31 @@ MVP security is basic but non-negotiable.
 - Uploads must enforce file size limits.
 - Uploads must validate expected media type and extension but must not trust either alone.
 - API must not expose arbitrary local filesystem paths.
+- API must not expose raw MinIO bucket internals as stable public API.
 - Worker must process files from controlled storage paths only.
 - Path traversal must be prevented.
 - Processing errors must be sanitized before returning to users.
 - Secrets must come from environment variables, not committed files.
 
-## 9. Definition of Done for the MVP
+## 10. Definition of Done for the MVP
 
 The MVP is done when a clean checkout can do this:
 
 ```txt
 1. Start the stack using documented local commands.
-2. Create or log in as a user.
+2. Log in as a Clerk-backed user.
 3. Upload a small sample MP4.
 4. See the video transition through queued/processing states.
 5. Worker generates HLS output and a thumbnail.
 6. Video reaches ready state.
-7. Watch page plays the HLS stream in a browser.
+7. Watch page plays the HLS stream through the API playback/HLS route in a browser.
 8. API prevents one user from editing another user's video.
 9. A failed/bad upload produces a visible failed state and useful logs.
 10. Critical tests and smoke checks pass.
 11. Every sector involved has written a memory entry.
 ```
 
-## 10. Memory / minimal changelog protocol
+## 11. Memory / minimal changelog protocol
 
 Every sector agent must write a minimal changelog / ADR-style entry under the root `memory/` folder before handing off work.
 
@@ -334,7 +393,7 @@ Rules:
 - If no architecture decision was made, write `No ADR-level decision.` under `Decisions / ADR notes`.
 - If validation was not run, explicitly write `Not run` and explain why.
 
-## 11. Required agent grounding rule
+## 12. Required agent grounding rule
 
 Before editing implementation code, every agent must:
 
@@ -355,14 +414,10 @@ Useful official reference anchors:
 - hls.js repository/docs: https://github.com/video-dev/hls.js/
 - Media Source Extensions overview: https://developer.mozilla.org/en-US/docs/Web/API/Media_Source_Extensions_API
 
-## 12. Open questions for the human owner
+## 13. Remaining owner decisions
 
-These should be resolved when convenient, but they do not block MVP planning.
+The stack, ready-video default privacy, upload transport, and playback delivery strategy are now resolved for the MVP. Remaining decisions should not block the first vertical slice.
 
-1. Preferred app stack: Python/FastAPI or TypeScript/Node for the backend?
-2. Preferred frontend: Next.js full-stack app or separate React SPA?
-3. Do you want local filesystem only for the first build, or MinIO from day one?
-4. Should authentication be custom email/password or outsourced to a provider later?
-5. What maximum upload size should the MVP support locally?
-6. Should the MVP support public videos only, or private videos from day one?
-7. Should the MVP repo be monorepo with `apps/web`, `apps/api`, `workers/media`, or simpler flat structure?
+1. Maximum local upload size for the MVP.
+2. Exact monorepo shape, with `apps/web`, `apps/api`, `workers/media`, `packages/shared`, `infra/docker`, and `fixtures/media` still recommended unless implementation reveals a simpler fit.
+3. Whether playback events are required in the first demo or can follow immediately after basic playback.

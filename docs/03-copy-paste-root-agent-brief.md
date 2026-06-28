@@ -21,6 +21,13 @@ Build VOD-first upload -> process -> HLS playback.
 
 Do not add live streaming, DRM, recommendations, payments, mobile apps, Kubernetes, or distributed transcoding before the first complete local VOD loop works.
 
+## Locked MVP defaults
+
+- Use Next.js, FastAPI, SQLAlchemy/Alembic, PostgreSQL, Redis/Celery, Clerk, MinIO, FFmpeg/ffprobe, and hls.js.
+- New videos default to `private`.
+- Uploads go browser -> FastAPI -> MinIO.
+- Playback goes hls.js -> FastAPI HLS proxy -> MinIO.
+
 ## Memory entry required
 
 Use `memory/_TEMPLATE.md` for every handoff.

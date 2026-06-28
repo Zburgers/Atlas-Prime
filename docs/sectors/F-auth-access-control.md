@@ -45,15 +45,15 @@ To all sectors:
 
 To Sector E:
 
-- Playback authorization rules and optional signed URL behavior.
+- Playback authorization rules for the API HLS proxy.
 
 ## MVP privacy model
 
 Minimum viable privacy:
 
 ```txt
-owner-only drafts/uploads/failed videos
-ready videos may be public or owner-only depending on product choice
+owner-only drafts/uploads/processing/failed videos
+ready videos default private unless owner changes privacy
 ```
 
 If privacy status is implemented, use simple values:
@@ -61,6 +61,14 @@ If privacy status is implemented, use simple values:
 ```txt
 private, public, unlisted
 ```
+
+MVP default:
+
+- New videos are `private`.
+- `private` videos are visible/playable only by the owner.
+- `public` ready videos are visible/playable without ownership.
+- `unlisted` ready videos are playable by link but excluded from public browse/search surfaces.
+- Non-ready videos are owner-only regardless of privacy value.
 
 Do not implement paid/subscriber access in MVP.
 
@@ -79,6 +87,7 @@ Do not implement paid/subscriber access in MVP.
 - [ ] API can identify current user.
 - [ ] User A cannot update/delete/upload to User B's video.
 - [ ] User A cannot access private playback for User B's video.
+- [ ] New videos default to private and non-ready videos remain owner-only.
 - [ ] Auth errors are consistent and frontend-readable.
 - [ ] Secrets are not committed.
 - [ ] No custom password storage is introduced unless explicitly approved.
@@ -92,7 +101,7 @@ Do not implement paid/subscriber access in MVP.
 4. Add ownership helpers.
 5. Protect video endpoints.
 6. Add cross-user tests.
-7. Document privacy/playback behavior.
+7. Document privacy/playback behavior for the API HLS proxy.
 
 ## Latest docs to check
 

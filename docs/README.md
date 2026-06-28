@@ -1,6 +1,6 @@
-# Streaming Platform Planning Artifacts
+# Atlas Prime Planning Artifacts
 
-These documents define the initial engineering foundation for a learning-oriented, from-scratch video streaming platform.
+These documents define the initial engineering foundation for Atlas Prime, a learning-oriented, from-scratch video streaming platform.
 
 ## Read order
 
@@ -16,13 +16,20 @@ These documents define the initial engineering foundation for a learning-oriente
 |---|---|---|
 | A | `docs/sectors/A-product-web-app-shell.md` | Web shell, creator/watch UX, visible states |
 | B | `docs/sectors/B-core-api-database.md` | API contracts, database schema, domain state machine |
-| C | `docs/sectors/C-upload-ingest-storage.md` | Uploads, file validation, original media storage |
+| C | `docs/sectors/C-upload-ingest-storage.md` | API-mediated uploads, file validation, original media storage |
 | D | `docs/sectors/D-media-processing-packaging.md` | FFmpeg/ffprobe, transcoding, HLS output generation |
-| E | `docs/sectors/E-delivery-playback-cdn.md` | Static delivery, HLS playback, player events, CDN pathing |
-| F | `docs/sectors/F-auth-access-control.md` | Identity, permissions, signed/private playback access |
+| E | `docs/sectors/E-delivery-playback-cdn.md` | API-proxied HLS playback, player events, CDN pathing |
+| F | `docs/sectors/F-auth-access-control.md` | Clerk identity, ownership, private-by-default playback access |
 | G | `docs/sectors/G-observability-admin-ops.md` | Logs, metrics, admin status, operational visibility |
 | H | `docs/sectors/H-testing-devex-ci.md` | Local dev, test harness, CI, smoke validation |
 
 ## Project stance
 
 This is intentionally VOD-first and learning-first. The MVP should teach the full path from upload to HLS playback without prematurely building live streaming, DRM, recommendations, payments, or a large distributed system.
+
+## Locked MVP defaults
+
+- Stack: Next.js, FastAPI, SQLAlchemy/Alembic, PostgreSQL, Redis/Celery, Clerk, MinIO, FFmpeg/ffprobe, hls.js.
+- Privacy: new and ready videos default to `private`; owners can later choose `public` or `unlisted`.
+- Upload: browser uploads go through FastAPI, which validates and writes originals to MinIO.
+- Playback: hls.js loads API-owned HLS URLs served by a FastAPI proxy over MinIO objects.
