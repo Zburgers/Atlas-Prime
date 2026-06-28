@@ -92,6 +92,11 @@ async def mvp_contract() -> dict[str, Any]:
         "default_privacy": "private",
         "upload_transport": "api-mediated",
         "playback_delivery": "api-proxied-hls",
+        "auth": {
+            "provider": "clerk",
+            "api_token_sources": ["authorization_bearer", "__session_cookie"],
+            "dev_headers_enabled": _env("ATLAS_ALLOW_DEV_AUTH_HEADERS").lower() in {"1", "true", "yes"},
+        },
         "storage": {
             "originals_bucket": _env("MINIO_BUCKET_ORIGINALS", "atlas-originals"),
             "processed_bucket": _env("MINIO_BUCKET_PROCESSED", "atlas-processed"),
@@ -100,6 +105,6 @@ async def mvp_contract() -> dict[str, Any]:
         "smoke_coverage": {
             "core_video_metadata_and_processing_status": "implemented-by-sector-b",
             "upload_process_playback_metadata": "upload-storage-worker-proxy-pending-sectors-c-d-e",
-            "cross_user_private_playback_denial": "pending-auth-fixtures-from-sector-f",
+            "cross_user_private_playback_denial": "implemented-by-sector-f-api-tests",
         },
     }

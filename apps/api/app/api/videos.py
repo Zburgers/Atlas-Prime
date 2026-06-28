@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Query, Response, status
 
-from app.api.deps import CurrentUserDep, SessionDep
+from app.api.deps import CurrentUserDep, OptionalCurrentUserDep, SessionDep
 from app.domain.status import VideoStatus
 from app.schemas.videos import (
     PlaybackResponse,
@@ -35,7 +35,7 @@ async def create_video(payload: VideoCreate, session: SessionDep, user: CurrentU
 @router.get("/videos", response_model=VideoListResponse)
 async def list_videos(
     session: SessionDep,
-    user: CurrentUserDep,
+    user: OptionalCurrentUserDep,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> VideoListResponse:
@@ -44,7 +44,7 @@ async def list_videos(
 
 
 @router.get("/videos/{video_id}", response_model=VideoResponse)
-async def get_video(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> object:
+async def get_video(video_id: UUID, session: SessionDep, user: OptionalCurrentUserDep) -> object:
     return await video_service.get_video_for_read(session, user, video_id)
 
 
@@ -65,12 +65,16 @@ async def process_video(video_id: UUID, session: SessionDep, user: CurrentUserDe
 
 
 @router.get("/videos/{video_id}/processing-status", response_model=ProcessingStatusResponse)
-async def get_processing_status(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> ProcessingStatusResponse:
+async def get_processing_status(
+    video_id: UUID,
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+) -> ProcessingStatusResponse:
     return await video_service.processing_status(session, user, video_id)
 
 
 @router.get("/videos/{video_id}/playback", response_model=PlaybackResponse)
-async def playback(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> PlaybackResponse:
+async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUserDep) -> PlaybackResponse:
     video = await video_service.video_with_renditions_for_playback(session, user, video_id)
     return PlaybackResponse(
         video_id=video.id,
@@ -86,7 +90,7 @@ async def hls_asset(
     video_id: UUID,
     asset_path: Annotated[str, Path(min_length=1)],
     session: SessionDep,
-    user: CurrentUserDep,
+    user: OptionalCurrentUserDep,
 ) -> None:
     if ".." in asset_path.split("/"):
         raise HTTPException(

@@ -12,8 +12,11 @@ Sector H owns the repeatable local stack.
 
 ```sh
 make env
+clerk init --app app_3Fldg6OPLlGBAMmcAv2bDYuT0PD
 make up
 ```
+
+Run `clerk init` from `apps/web` if the CLI cannot detect Next.js from the monorepo root. The linked Clerk application is `app_3Fldg6OPLlGBAMmcAv2bDYuT0PD`.
 
 Services:
 
@@ -62,4 +65,6 @@ The generated fixture is `fixtures/media/sample-2s.mp4` and is ignored by git.
 - API MVP contract metadata keeps `private` as the default privacy and documents API-mediated upload plus API-proxied HLS.
 - Celery media worker responds to ping.
 
-The full upload -> process -> playback smoke path remains a documented placeholder until Sectors C, D, E, and F implement the API endpoints, worker transcode path, playback proxy, and auth fixtures. Cross-user private playback denial must be added there once auth test identities exist.
+The full upload -> process -> playback smoke path remains a documented placeholder until Sectors C, D, and E implement the upload endpoints, worker transcode path, and playback proxy.
+
+Sector F now covers Clerk-backed API identity, cross-user private video denial, and private playback denial at the API service boundary. The full browser upload -> process -> playback smoke remains pending Sectors C, D, and E.

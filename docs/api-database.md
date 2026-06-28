@@ -1,6 +1,6 @@
 # API and Database Contract
 
-Status: Sector B foundation  
+Status: Sector B/F foundation
 Last updated: 28-06-2026
 
 ## Database Access
@@ -25,4 +25,12 @@ Last updated: 28-06-2026
 - Sector C owns upload completion and original object writes.
 - Sector D owns worker job execution and rendition population.
 - Sector E owns the real HLS object proxy behind `GET /videos/{video_id}/hls/{path}`.
-- Sector F owns replacing the dev identity headers with real Clerk JWT verification.
+- Sector F replaced the default identity boundary with Clerk session JWT verification.
+
+## Auth and Access Control
+
+- Protected API requests accept a Clerk session token from `Authorization: Bearer <token>` or the Clerk `__session` cookie.
+- `GET /me`, video mutations, processing enqueue, and admin routes require a valid Clerk identity.
+- `GET /videos`, `GET /videos/{video_id}`, processing status, playback metadata, and HLS proxy authorization allow anonymous requests only for `ready` videos with `public` or `unlisted` privacy.
+- Draft/uploading/uploaded/queued/probing/processing/failed videos remain owner-only regardless of privacy.
+- Development identity headers are disabled by default. Set `ATLAS_ALLOW_DEV_AUTH_HEADERS=true` only for local smoke/tests that intentionally use `X-Atlas-Dev-Clerk-User-Id`.

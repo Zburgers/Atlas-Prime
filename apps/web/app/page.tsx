@@ -1,3 +1,5 @@
+import { AuthApiStatus } from "./components/api-status";
+
 export default function Home() {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -13,6 +15,7 @@ export default function Home() {
         <p>
           API health: <code>{apiBaseUrl}/healthz</code>
         </p>
+        <AuthApiStatus apiBaseUrl={apiBaseUrl} />
       </section>
     </main>
   );

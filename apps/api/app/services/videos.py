@@ -41,11 +41,11 @@ async def create_video(session: AsyncSession, owner: User, payload: VideoCreate)
     return video
 
 
-async def list_visible_videos(session: AsyncSession, user: User, page: int, page_size: int) -> tuple[list[Video], int]:
-    visible = or_(
-        Video.owner_id == user.id,
-        (Video.status == VideoStatus.READY.value) & (Video.privacy.in_([VideoPrivacy.PUBLIC.value, VideoPrivacy.UNLISTED.value])),
+async def list_visible_videos(session: AsyncSession, user: User | None, page: int, page_size: int) -> tuple[list[Video], int]:
+    public_ready = (Video.status == VideoStatus.READY.value) & (
+        Video.privacy.in_([VideoPrivacy.PUBLIC.value, VideoPrivacy.UNLISTED.value])
     )
+    visible = public_ready if user is None else or_(Video.owner_id == user.id, public_ready)
     total = await session.scalar(select(func.count()).select_from(Video).where(visible))
     result = await session.execute(
         select(Video)
@@ -57,11 +57,11 @@ async def list_visible_videos(session: AsyncSession, user: User, page: int, page
     return list(result.scalars()), int(total or 0)
 
 
-async def get_video_for_read(session: AsyncSession, user: User, video_id: UUID) -> Video:
+async def get_video_for_read(session: AsyncSession, user: User | None, video_id: UUID) -> Video:
     video = await session.get(Video, video_id)
     if video is None:
         raise _not_found()
-    if video.owner_id == user.id:
+    if user is not None and video.owner_id == user.id:
         return video
     if video.status == VideoStatus.READY.value and video.privacy in {VideoPrivacy.PUBLIC.value, VideoPrivacy.UNLISTED.value}:
         return video
@@ -123,7 +123,7 @@ async def queue_processing_job(session: AsyncSession, user: User, video_id: UUID
     return job
 
 
-async def processing_status(session: AsyncSession, user: User, video_id: UUID) -> ProcessingStatusResponse:
+async def processing_status(session: AsyncSession, user: User | None, video_id: UUID) -> ProcessingStatusResponse:
     video = await get_video_for_read(session, user, video_id)
     result = await session.execute(
         select(VideoProcessingJob)
@@ -140,7 +140,7 @@ async def processing_status(session: AsyncSession, user: User, video_id: UUID) -
     )
 
 
-async def video_with_renditions_for_playback(session: AsyncSession, user: User, video_id: UUID) -> Video:
+async def video_with_renditions_for_playback(session: AsyncSession, user: User | None, video_id: UUID) -> Video:
     result = await session.execute(
         select(Video).options(selectinload(Video.renditions)).where(Video.id == video_id)
     )
@@ -149,6 +149,9 @@ async def video_with_renditions_for_playback(session: AsyncSession, user: User, 
         raise _not_found()
     if video.status != VideoStatus.READY.value:
         raise _conflict("Video is not ready for playback", {"current_status": video.status})
-    if video.owner_id != user.id and video.privacy not in {VideoPrivacy.PUBLIC.value, VideoPrivacy.UNLISTED.value}:
+    if (user is None or video.owner_id != user.id) and video.privacy not in {
+        VideoPrivacy.PUBLIC.value,
+        VideoPrivacy.UNLISTED.value,
+    }:
         raise _forbidden()
     return video
