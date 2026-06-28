@@ -7,8 +7,8 @@ Primary mission: make identity, ownership, and private access rules reliable fro
 
 Build MVP authentication and authorization:
 
-- User registration/login or integration with chosen auth provider.
-- Session/JWT handling.
+- Clerk integration for user authentication.
+- Clerk JWT verification/session handling in frontend and API.
 - Current-user endpoint.
 - Ownership checks for video CRUD/upload/process/playback.
 - Basic privacy model.
@@ -67,7 +67,7 @@ Do not implement paid/subscriber access in MVP.
 ## Deliverables
 
 - Auth implementation.
-- Password/session handling or provider integration.
+- Clerk provider integration.
 - Current user endpoint.
 - Ownership middleware/helper.
 - Tests for user A vs user B access.
@@ -75,19 +75,19 @@ Do not implement paid/subscriber access in MVP.
 
 ## Acceptance criteria
 
-- [ ] User can sign up/log in locally.
+- [ ] User can sign in through the local/dev Clerk-backed flow.
 - [ ] API can identify current user.
 - [ ] User A cannot update/delete/upload to User B's video.
 - [ ] User A cannot access private playback for User B's video.
 - [ ] Auth errors are consistent and frontend-readable.
 - [ ] Secrets are not committed.
-- [ ] Passwords, if used, are hashed safely.
+- [ ] No custom password storage is introduced unless explicitly approved.
 - [ ] Auth design is documented in memory if it affects multiple sectors.
 
 ## Suggested implementation order
 
-1. Decide auth approach.
-2. Implement user identity and session/JWT.
+1. Implement Clerk identity and session/JWT verification.
+2. Implement user identity mapping in the API.
 3. Add current-user endpoint.
 4. Add ownership helpers.
 5. Protect video endpoints.
@@ -96,9 +96,9 @@ Do not implement paid/subscriber access in MVP.
 
 ## Latest docs to check
 
-- Chosen auth/session library docs.
+- Clerk docs for the chosen frontend and backend integration path.
 - Backend framework security/auth middleware docs.
-- OWASP guidance if implementing custom password/session handling.
+- OWASP guidance if implementation adds custom auth logic beyond Clerk.
 
 ## Required memory entry
 

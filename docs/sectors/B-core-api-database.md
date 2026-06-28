@@ -7,7 +7,8 @@ Primary mission: define the durable domain model, API contracts, and state machi
 
 Build the backend foundation:
 
-- Database schema/migrations.
+- FastAPI route/service foundation.
+- Database schema/migrations with SQLAlchemy ORM and Alembic.
 - Video domain model.
 - Video lifecycle/status machine.
 - API endpoints for video metadata and processing status.
@@ -64,15 +65,16 @@ If the implementation uses enums, these exact string values are preferred for cl
 ## Deliverables
 
 - Initial schema/migrations for users, videos, renditions, processing jobs, and optionally playback events.
-- API route skeletons for core video operations.
+- FastAPI route skeletons for core video operations.
 - Status transition helpers or service functions.
 - Error model for user-safe and developer-facing errors.
-- API response examples or OpenAPI output.
+- API response examples or FastAPI OpenAPI output.
 - Basic tests for status transitions and ownership-aware queries.
 
 ## Acceptance criteria
 
 - [ ] Migrations run from a clean database.
+- [ ] Database access pattern is documented clearly enough for other sectors to avoid guessing session/transaction boundaries.
 - [ ] Video can be created in `draft` or equivalent initial state.
 - [ ] Video status can transition through the canonical lifecycle.
 - [ ] Invalid status transitions are rejected or explicitly handled.
@@ -94,8 +96,9 @@ If the implementation uses enums, these exact string values are preferred for cl
 
 ## Latest docs to check
 
-- Backend framework docs for routing, validation, dependency injection, and file-safe error handling.
-- ORM/migration docs.
+- FastAPI docs for routing, validation, dependency injection, and file-safe error handling.
+- SQLAlchemy ORM docs.
+- Alembic docs.
 - PostgreSQL docs if using advanced enum/check constraints.
 
 

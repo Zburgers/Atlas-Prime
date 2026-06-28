@@ -8,7 +8,7 @@ Primary mission: make the project easy to run, test, and verify repeatedly.
 Build the local engineering foundation:
 
 - Repo structure recommendation.
-- Docker Compose for app/database/queue/worker where applicable.
+- Docker Compose for web/api/database/queue/worker/MinIO where applicable.
 - `.env.example`.
 - Makefile or task runner.
 - Test commands.
@@ -35,6 +35,7 @@ It should provide:
 - Standard migration command.
 - Standard smoke command.
 - Fixture storage location.
+- Documented env contract for Clerk, PostgreSQL, Redis, and MinIO.
 
 ## Suggested repo shape
 
@@ -51,9 +52,8 @@ packages/
 docs/
   sectors/
 memory/
-storage/
-  originals/
-  processed/
+fixtures/
+  media/
 infra/
   docker/
 ```
@@ -74,6 +74,7 @@ This is a recommendation, not a hard requirement. If the repo is already structu
 
 - [ ] New developer can start the stack from documented commands.
 - [ ] DB and queue run locally.
+- [ ] MinIO runs locally with documented buckets or bootstrap steps.
 - [ ] Worker can be started locally.
 - [ ] Tests can be run with one documented command.
 - [ ] Smoke test path is documented even if initially partial.
@@ -86,7 +87,7 @@ This is a recommendation, not a hard requirement. If the repo is already structu
 1. Inspect repo and choose minimal local orchestration.
 2. Add `.env.example`.
 3. Add task runner/Makefile commands.
-4. Add database/queue services.
+4. Add database/queue/object-storage services.
 5. Add worker startup path.
 6. Add sample fixture strategy.
 7. Add CI checks.

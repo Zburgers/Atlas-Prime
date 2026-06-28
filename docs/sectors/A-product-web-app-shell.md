@@ -7,7 +7,8 @@ Primary mission: make the streaming platform usable and visible in the browser.
 
 Build the MVP user-facing web experience:
 
-- Auth screens or auth integration points.
+- Next.js TypeScript app shell and routes.
+- Clerk auth integration points.
 - Video library page.
 - Upload/create video flow.
 - Processing status UI.
@@ -52,7 +53,7 @@ From Sector G:
 ## Deliverables
 
 - App shell/navigation.
-- Login/register UI or placeholders wired to actual auth when available.
+- Clerk-wired sign-in/sign-up entry points or guarded routes as appropriate.
 - Video list page.
 - Create/upload video page.
 - Processing status component showing at least: queued, probing, processing, ready, failed.
@@ -84,7 +85,8 @@ From Sector G:
 
 ## Latest docs to check
 
-- Current frontend framework docs.
+- Next.js docs.
+- Clerk frontend/Next.js docs if auth UI or route protection is touched.
 - hls.js docs if player logic is touched: https://github.com/video-dev/hls.js/
 - Browser Media Source Extensions docs if debugging playback behavior: https://developer.mozilla.org/en-US/docs/Web/API/Media_Source_Extensions_API
 

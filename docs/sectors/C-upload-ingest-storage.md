@@ -7,7 +7,7 @@ Primary mission: get original media safely from the user's browser into controll
 
 Build the upload path:
 
-- Upload endpoint or signed-upload flow.
+- Upload endpoint or signed-upload flow into MinIO.
 - File size limits.
 - Media type validation.
 - Original media storage layout.
@@ -39,13 +39,13 @@ From Sector F:
 
 From Sector H:
 
-- Local storage paths and dev/test fixtures.
+- Local service/bootstrap conventions and dev/test fixtures.
 
 ## Interfaces provided
 
 To Sector D:
 
-- Stable original media storage key/path.
+- Stable original media storage key.
 - Metadata about uploaded file.
 - Processing job payload shape.
 
@@ -59,24 +59,18 @@ To Sector G:
 
 ## Storage layout
 
-Default local-first layout:
+Canonical object storage key layout:
 
 ```txt
-storage/
-  originals/
-    {video_id}/
-      source.{ext}
-  processed/
-    {video_id}/
-      hls/
-        master.m3u8
+originals/{video_id}/source.{ext}
+processed/{video_id}/hls/master.m3u8
 ```
 
-Do not expose raw absolute local paths through public API responses.
+Use MinIO as the MVP storage backend from day one. Do not expose bucket internals or raw absolute filesystem paths through public API responses.
 
 ## Deliverables
 
-- Storage service abstraction.
+- S3-compatible storage service abstraction.
 - Upload endpoint or direct-upload orchestration.
 - File validation logic.
 - Controlled filename/path generation.
@@ -98,18 +92,18 @@ Do not expose raw absolute local paths through public API responses.
 ## Suggested implementation order
 
 1. Define storage service interface.
-2. Implement local filesystem storage.
+2. Implement MinIO/S3-compatible storage.
 3. Add upload endpoint and validation.
 4. Wire status transition.
 5. Wire job enqueue.
 6. Add tests.
-7. Document future object storage migration path.
+7. Document upload flow and storage-key contract for downstream sectors.
 
 ## Latest docs to check
 
 - Backend framework file upload docs.
-- Object storage SDK docs if MinIO/S3-compatible storage is introduced.
-- Queue library docs if enqueue behavior is implemented here.
+- Object storage SDK docs for the chosen MinIO/S3-compatible client.
+- Celery docs if enqueue behavior is implemented here.
 
 ## Required memory entry
 

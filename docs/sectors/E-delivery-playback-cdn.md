@@ -9,7 +9,7 @@ Build the delivery/playback path:
 
 - Static serving of processed HLS assets.
 - Playback metadata endpoint integration.
-- Browser HLS player.
+- Browser HLS player in the Next.js app.
 - Basic quality/error/loading events.
 - Cache-header pathing that can later be moved behind CDN.
 - Optional signed playback URL support if Sector F is ready.
@@ -69,7 +69,7 @@ Example shape:
 }
 ```
 
-For local MVP, the URL may be served by the API, Next.js static route, or Nginx, but the abstraction should allow CDN later.
+For local MVP, the URL may be a presigned MinIO URL or an API-served/proxied URL, but the abstraction should allow CDN later and the frontend must not guess bucket/object paths.
 
 ## Deliverables
 
@@ -107,6 +107,7 @@ For local MVP, the URL may be served by the API, Next.js static route, or Nginx,
 - hls.js docs: https://github.com/video-dev/hls.js/
 - Browser Media Source Extensions overview: https://developer.mozilla.org/en-US/docs/Web/API/Media_Source_Extensions_API
 - Static file serving docs for chosen backend/reverse proxy.
+- MinIO or S3-compatible URL-signing docs if presigned playback URLs are used.
 - CDN/cache docs if vendor-specific config is added.
 
 ## Required memory entry

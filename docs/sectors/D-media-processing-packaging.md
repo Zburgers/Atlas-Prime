@@ -7,7 +7,7 @@ Primary mission: convert uploaded original media into browser-playable HLS outpu
 
 Build the worker pipeline:
 
-- Claim processing jobs.
+- Execute Redis-backed Celery processing jobs.
 - Probe source media with `ffprobe`.
 - Store media metadata.
 - Generate thumbnail.
@@ -35,8 +35,8 @@ From Sector B:
 
 From Sector C:
 
-- Original source storage key/path.
-- Storage service for reading original and writing processed outputs.
+- Original source storage key.
+- Storage service for reading original and writing processed outputs in MinIO.
 
 From Sector H:
 
@@ -82,7 +82,7 @@ The worker should:
 ## Deliverables
 
 - Worker process or command.
-- Job claim/execute/update logic.
+- Celery task plus job execute/update logic.
 - Probe parser.
 - FFmpeg HLS generation command(s).
 - Thumbnail generation.
@@ -105,7 +105,7 @@ The worker should:
 ## Suggested implementation order
 
 1. Build a local CLI/script that probes and packages one file.
-2. Wrap it in worker/job logic.
+2. Wrap it in Celery worker/job logic.
 3. Store outputs in canonical storage layout.
 4. Update DB status and rendition rows.
 5. Add thumbnail extraction.
@@ -118,6 +118,7 @@ The worker should:
 - ffprobe documentation: https://ffmpeg.org/ffprobe.html
 - Apple HLS documentation: https://developer.apple.com/documentation/http-live-streaming
 - Apple HLS overview: https://developer.apple.com/streaming/
+- Celery docs if task execution or retries are touched.
 
 ## Required memory entry
 

@@ -8,10 +8,11 @@ Primary mission: make the platform debuggable while it is being built.
 Build visibility for:
 
 - API health.
-- Worker health.
-- Queue/job status.
+- Celery worker health.
+- Redis queue/job status.
 - Video processing failures.
 - Upload/storage failures.
+- MinIO storage reachability when relevant.
 - Playback errors/events if implemented.
 - Basic admin/debug dashboard or endpoints.
 - Structured logs where feasible.
@@ -72,16 +73,16 @@ From Sector H:
 
 1. Define log context fields.
 2. Add API health endpoint.
-3. Add worker heartbeat or job visibility.
+3. Add Celery worker heartbeat or job visibility.
 4. Add admin job/video debug endpoint.
 5. Add player event ingestion if E exposes it.
 6. Add runbook notes.
 
 ## Latest docs to check
 
-- Logging library docs for chosen backend/worker stack.
-- Metrics/healthcheck docs for chosen framework.
-- Queue monitoring docs if using Celery/RQ/BullMQ dashboards.
+- Logging library docs for the chosen FastAPI/Celery stack.
+- Metrics/healthcheck docs for FastAPI.
+- Celery monitoring docs if queue visibility or retries are touched.
 
 ## Required memory entry
 
