@@ -2,6 +2,7 @@
 
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs";
 import { useState } from "react";
+import { apiRequest } from "./video-api";
 
 type ApiMeResponse = {
   id: string;
@@ -20,16 +21,12 @@ export function AuthApiStatus({ apiBaseUrl }: { apiBaseUrl: string }) {
       return;
     }
 
-    const response = await fetch(`${apiBaseUrl}/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) {
-      setResult(`API rejected session (${response.status})`);
-      return;
+    try {
+      const body = await apiRequest<ApiMeResponse>("/me", { token });
+      setResult(`API identity: ${body.clerk_user_id}`);
+    } catch {
+      setResult(`API rejected session via ${apiBaseUrl}`);
     }
-
-    const body = (await response.json()) as ApiMeResponse;
-    setResult(`API identity: ${body.clerk_user_id}`);
   }
 
   return (
@@ -37,7 +34,9 @@ export function AuthApiStatus({ apiBaseUrl }: { apiBaseUrl: string }) {
       <div className="authControls">
         <Show when="signed-out">
           <SignInButton mode="modal">
-            <button type="button">Sign in</button>
+            <button className="ghostButton" type="button">
+              Sign in
+            </button>
           </SignInButton>
           <SignUpButton mode="modal">
             <button type="button">Sign up</button>

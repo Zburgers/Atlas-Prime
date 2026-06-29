@@ -2,6 +2,7 @@ import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { AppHeader } from "./components/app-header";
 
 export const metadata: Metadata = {
   title: "Atlas Prime",
@@ -14,7 +15,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <ClerkProvider publishableKey={clerkPublishableKey}>{children}</ClerkProvider>
+        <ClerkProvider publishableKey={clerkPublishableKey}>
+          <AppHeader />
+          <main>{children}</main>
+        </ClerkProvider>
       </body>
     </html>
   );
