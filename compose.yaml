@@ -108,12 +108,19 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://atlas:atlas@postgres:5432/atlas_prime}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-atlasminio}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-atlasminiopassword}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_BUCKET_ORIGINALS: ${MINIO_BUCKET_ORIGINALS:-atlas-originals}
+      MINIO_BUCKET_PROCESSED: ${MINIO_BUCKET_PROCESSED:-atlas-processed}
+      ATLAS_FFMPEG_TIMEOUT_SECONDS: ${ATLAS_FFMPEG_TIMEOUT_SECONDS:-120}
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       minio-bootstrap:

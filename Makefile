@@ -11,6 +11,7 @@ help:
 		'  make ps         Show compose service status' \
 		'  make db-upgrade Run API Alembic migrations' \
 		'  make test       Run API and web tests' \
+		'  make worker-test Run media worker tests' \
 		'  make lint       Run lightweight syntax/config checks' \
 		'  make smoke      Run Sector H stack smoke check' \
 		'  make fixture    Generate a tiny legal MP4 fixture with ffmpeg'
@@ -42,12 +43,18 @@ db-upgrade: env
 .PHONY: test
 test: env
 	$(COMPOSE) run --rm --build api pytest
+	$(COMPOSE) run --rm --build worker pytest tests
 	$(COMPOSE) run --rm --build web-test npm --workspace apps/web test
+
+.PHONY: worker-test
+worker-test: env
+	$(COMPOSE) run --rm --build worker pytest tests
 
 .PHONY: lint
 lint: env
 	$(COMPOSE) config -q
 	$(COMPOSE) run --rm --build api python -m compileall app tests
+	$(COMPOSE) run --rm --build worker python -m compileall media_worker tests
 	$(COMPOSE) run --rm --build web-test npm --workspace apps/web run lint
 
 .PHONY: smoke
