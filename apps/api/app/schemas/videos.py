@@ -105,6 +105,15 @@ class PlaybackResponse(BaseModel):
     renditions: list[RenditionResponse]
 
 
+class VideoUploadResponse(BaseModel):
+    video: VideoResponse
+    processing_job: ProcessingJobResponse
+    storage_key: str
+    size_bytes: int
+    content_type: str
+    celery_task_id: str
+
+
 class ErrorResponse(BaseModel):
     error: str
     message: str

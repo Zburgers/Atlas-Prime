@@ -72,9 +72,15 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://atlas:atlas@postgres:5432/atlas_prime}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-atlasminio}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-atlasminiopassword}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_BUCKET_ORIGINALS: ${MINIO_BUCKET_ORIGINALS:-atlas-originals}
+      MINIO_BUCKET_PROCESSED: ${MINIO_BUCKET_PROCESSED:-atlas-processed}
+      ATLAS_UPLOAD_MAX_BYTES: ${ATLAS_UPLOAD_MAX_BYTES:-104857600}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}

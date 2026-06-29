@@ -13,6 +13,8 @@ from app.services.auth import (
     dev_auth_headers_enabled,
     verify_clerk_session_token,
 )
+from app.services.processing_queue import ProcessingQueue
+from app.services.storage import MinioOriginalStorage, OriginalStorage
 from app.services.users import get_or_create_user
 
 
@@ -103,3 +105,15 @@ async def optional_current_user(session: SessionDep, identity: OptionalIdentityD
 
 CurrentUserDep = Annotated[object, Depends(current_user)]
 OptionalCurrentUserDep = Annotated[object | None, Depends(optional_current_user)]
+
+
+def get_original_storage() -> OriginalStorage:
+    return MinioOriginalStorage()
+
+
+def get_processing_queue() -> ProcessingQueue:
+    return ProcessingQueue()
+
+
+OriginalStorageDep = Annotated[OriginalStorage, Depends(get_original_storage)]
+ProcessingQueueDep = Annotated[ProcessingQueue, Depends(get_processing_queue)]

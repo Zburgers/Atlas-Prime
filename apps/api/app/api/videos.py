@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query, Response, status
+from fastapi import APIRouter, File, HTTPException, Path, Query, Response, UploadFile, status
 
-from app.api.deps import CurrentUserDep, OptionalCurrentUserDep, SessionDep
+from app.api.deps import CurrentUserDep, OptionalCurrentUserDep, OriginalStorageDep, ProcessingQueueDep, SessionDep
 from app.domain.status import VideoStatus
 from app.schemas.videos import (
     PlaybackResponse,
@@ -15,8 +15,10 @@ from app.schemas.videos import (
     VideoCreate,
     VideoListResponse,
     VideoResponse,
+    VideoUploadResponse,
     VideoUpdate,
 )
+from app.services import uploads as upload_service
 from app.services import videos as video_service
 
 router = APIRouter()
@@ -62,6 +64,33 @@ async def delete_video(video_id: UUID, session: SessionDep, user: CurrentUserDep
 @router.post("/videos/{video_id}/process", response_model=ProcessingJobResponse, status_code=status.HTTP_201_CREATED)
 async def process_video(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> object:
     return await video_service.queue_processing_job(session, user, video_id)
+
+
+@router.post("/videos/{video_id}/upload", response_model=VideoUploadResponse)
+async def upload_video(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+    storage: OriginalStorageDep,
+    processing_queue: ProcessingQueueDep,
+    file: UploadFile = File(...),
+) -> VideoUploadResponse:
+    result = await upload_service.upload_original_and_queue_processing(
+        session,
+        user=user,
+        video_id=video_id,
+        file=file,
+        storage=storage,
+        processing_queue=processing_queue,
+    )
+    return VideoUploadResponse(
+        video=result.video,
+        processing_job=result.processing_job,
+        storage_key=result.storage_key,
+        size_bytes=result.size_bytes,
+        content_type=result.content_type,
+        celery_task_id=result.celery_task_id,
+    )
 
 
 @router.get("/videos/{video_id}/processing-status", response_model=ProcessingStatusResponse)

@@ -65,6 +65,6 @@ The generated fixture is `fixtures/media/sample-2s.mp4` and is ignored by git.
 - API MVP contract metadata keeps `private` as the default privacy and documents API-mediated upload plus API-proxied HLS.
 - Celery media worker responds to ping.
 
-The full upload -> process -> playback smoke path remains a documented placeholder until Sectors C, D, and E implement the upload endpoints, worker transcode path, and playback proxy.
+The full upload -> process -> playback smoke path remains a documented placeholder until Sectors D and E implement the worker transcode path and playback proxy.
 
-Sector F now covers Clerk-backed API identity, cross-user private video denial, and private playback denial at the API service boundary. The full browser upload -> process -> playback smoke remains pending Sectors C, D, and E.
+Sector C now covers the API-mediated browser -> FastAPI -> MinIO upload path with mocked API tests. Sector F covers Clerk-backed API identity, cross-user private video denial, and private playback denial at the API service boundary. The full browser upload -> process -> playback smoke remains pending Sectors D and E.

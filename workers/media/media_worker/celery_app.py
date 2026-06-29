@@ -16,3 +16,13 @@ celery_app.conf.task_acks_late = True
 @celery_app.task(name="media_worker.health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "media-worker"}
+
+
+@celery_app.task(name="media_worker.process_video")
+def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict[str, str]:
+    return {
+        "status": "pending-sector-d",
+        "video_id": video_id,
+        "job_id": job_id,
+        "original_storage_key": original_storage_key,
+    }

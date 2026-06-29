@@ -1,7 +1,7 @@
 # API and Database Contract
 
-Status: Sector B/F foundation
-Last updated: 28-06-2026
+Status: Sector B/F foundation plus Sector C upload path
+Last updated: 29-06-2026
 
 ## Database Access
 
@@ -34,3 +34,13 @@ Last updated: 28-06-2026
 - `GET /videos`, `GET /videos/{video_id}`, processing status, playback metadata, and HLS proxy authorization allow anonymous requests only for `ready` videos with `public` or `unlisted` privacy.
 - Draft/uploading/uploaded/queued/probing/processing/failed videos remain owner-only regardless of privacy.
 - Development identity headers are disabled by default. Set `ATLAS_ALLOW_DEV_AUTH_HEADERS=true` only for local smoke/tests that intentionally use `X-Atlas-Dev-Clerk-User-Id`.
+
+## Upload and Storage Contract
+
+- `POST /videos/{video_id}/upload` accepts multipart form data with a `file` field and requires the authenticated owner.
+- The MVP transport is browser -> FastAPI -> MinIO. Browser clients do not need MinIO credentials or bucket names.
+- FastAPI validates extension, content type, lightweight container header, empty file, and `ATLAS_UPLOAD_MAX_BYTES` before storing the original.
+- Supported original containers for the first upload path are `mp4`, `m4v`, `mov`, and `webm`.
+- Originals are stored in the private originals bucket using `originals/{video_id}/source.{ext}`.
+- A successful upload sets `videos.original_storage_key`, creates a `video_processing_jobs` row, transitions the video to `queued`, and enqueues Celery task `media_worker.process_video` with `video_id`, `job_id`, and `original_storage_key`.
+- Invalid uploads transition the owned video to `failed` with a sanitized failure code/message. Cross-user uploads are rejected before storage.

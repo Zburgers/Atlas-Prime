@@ -1,5 +1,7 @@
 from collections.abc import AsyncGenerator, Iterator
 from dataclasses import dataclass
+from typing import BinaryIO
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +10,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.session import get_session
+from app.api.deps import get_original_storage, get_processing_queue
 from app.main import app
+from app.services.storage import StoredObject, original_storage_key
 
 
 @pytest.fixture()
@@ -50,6 +54,53 @@ def _headers(user_id: str = "user_123", email: str = "user@example.com") -> dict
         "X-Atlas-Dev-Clerk-User-Id": user_id,
         "X-Atlas-Dev-Email": email,
     }
+
+
+def _minimal_mp4(payload: bytes = b"atlas") -> bytes:
+    return b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + payload
+
+
+class FakeOriginalStorage:
+    def __init__(self) -> None:
+        self.objects: list[tuple[str, bytes, str]] = []
+
+    def put_original(
+        self,
+        *,
+        video_id: UUID,
+        extension: str,
+        body: BinaryIO,
+        size_bytes: int,
+        content_type: str,
+    ) -> StoredObject:
+        key = original_storage_key(video_id, extension)
+        data = body.read()
+        assert len(data) == size_bytes
+        self.objects.append((key, data, content_type))
+        return StoredObject(bucket="test-originals", key=key, size_bytes=size_bytes, content_type=content_type)
+
+
+class FakeProcessingQueue:
+    def __init__(self) -> None:
+        self.jobs: list[dict[str, str]] = []
+
+    def enqueue_video_processing(self, *, video_id: UUID, job_id: UUID, original_storage_key: str) -> str:
+        self.jobs.append(
+            {
+                "video_id": str(video_id),
+                "job_id": str(job_id),
+                "original_storage_key": original_storage_key,
+            }
+        )
+        return "task-123"
+
+
+def _install_upload_fakes(client: TestClient) -> tuple[FakeOriginalStorage, FakeProcessingQueue]:
+    storage = FakeOriginalStorage()
+    queue = FakeProcessingQueue()
+    app.dependency_overrides[get_original_storage] = lambda: storage
+    app.dependency_overrides[get_processing_queue] = lambda: queue
+    return storage, queue
 
 
 @pytest.fixture(autouse=True)
@@ -142,3 +193,87 @@ def test_process_requires_uploaded_state(client: TestClient) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"]["details"]["required_status"] == "uploaded"
+
+
+def test_upload_requires_video_owner(client: TestClient) -> None:
+    storage, queue = _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Owner only"})
+    video_id = created.json()["id"]
+
+    response = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers("other"),
+        files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+    )
+
+    assert response.status_code == 403
+    assert storage.objects == []
+    assert queue.jobs == []
+
+
+def test_upload_rejects_invalid_media_and_marks_video_failed(client: TestClient) -> None:
+    storage, queue = _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers(), json={"title": "Bad upload"})
+    video_id = created.json()["id"]
+
+    response = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers(),
+        files={"file": ("lesson.mp4", b"not actually an mp4", "video/mp4")},
+    )
+    status_response = client.get(f"/videos/{video_id}/processing-status", headers=_headers())
+
+    assert response.status_code == 415
+    assert storage.objects == []
+    assert queue.jobs == []
+    assert status_response.json()["video_status"] == "failed"
+    assert status_response.json()["failure_code"] == "UPLOAD_VALIDATION_FAILED"
+
+
+def test_upload_rejects_oversized_file(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage, queue = _install_upload_fakes(client)
+    monkeypatch.setenv("ATLAS_UPLOAD_MAX_BYTES", "16")
+    created = client.post("/videos", headers=_headers(), json={"title": "Too large"})
+    video_id = created.json()["id"]
+
+    response = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers(),
+        files={"file": ("lesson.mp4", _minimal_mp4(b"x" * 64), "video/mp4")},
+    )
+
+    assert response.status_code == 413
+    assert storage.objects == []
+    assert queue.jobs == []
+
+
+def test_upload_stores_original_and_queues_processing(client: TestClient) -> None:
+    storage, queue = _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers(), json={"title": "Upload me"})
+    video_id = created.json()["id"]
+    data = _minimal_mp4()
+
+    response = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers(),
+        files={"file": ("lesson.mp4", data, "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    expected_key = f"originals/{video_id}/source.mp4"
+    assert body["video"]["status"] == "queued"
+    assert body["video"]["original_storage_key"] == expected_key
+    assert body["processing_job"]["status"] == "queued"
+    assert body["storage_key"] == expected_key
+    assert body["size_bytes"] == len(data)
+    assert body["content_type"] == "video/mp4"
+    assert body["celery_task_id"] == "task-123"
+    assert storage.objects == [(expected_key, data, "video/mp4")]
+    assert queue.jobs == [
+        {
+            "video_id": video_id,
+            "job_id": body["processing_job"]["id"],
+            "original_storage_key": expected_key,
+        }
+    ]
