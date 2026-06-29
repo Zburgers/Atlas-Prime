@@ -52,6 +52,47 @@ export type ProcessingJob = {
   created_at: string;
 };
 
+export type AdminJob = ProcessingJob & {
+  video_title: string | null;
+  video_status: VideoStatus | null;
+  video_failure_code: string | null;
+  video_failure_message: string | null;
+};
+
+export type PlaybackEvent = {
+  id: string;
+  user_id: string | null;
+  video_id: string;
+  event_type: string;
+  position_seconds: string | null;
+  quality_label: string | null;
+  client_timestamp: string | null;
+  created_at: string;
+};
+
+export type AdminOps = {
+  status: "ok" | "degraded";
+  api: Record<string, unknown>;
+  worker: {
+    ok: boolean;
+    online_workers: string[];
+    active_queues: Record<string, string[]>;
+    error: string | null;
+  };
+  redis: {
+    ok: boolean;
+    media_queue_depth: number | null;
+    error: string | null;
+  };
+};
+
+export type AdminVideoDebug = {
+  video: Video;
+  renditions: PlaybackResponse["renditions"];
+  processing_jobs: ProcessingJob[];
+  recent_playback_events: PlaybackEvent[];
+};
+
 export type ProcessingStatus = {
   video_id: string;
   video_status: VideoStatus;

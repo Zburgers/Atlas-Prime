@@ -159,17 +159,34 @@ button:disabled {
 }
 
 .homeStack,
-.sideStack {
+.sideStack,
+.adminStack {
+  display: grid;
+  gap: 18px;
+}
+
+.pageGrid,
+.watchLayout,
+.adminGrid,
+.debugColumns,
+.opsGrid {
+  align-items: start;
   display: grid;
   gap: 18px;
 }
 
 .pageGrid,
 .watchLayout {
-  align-items: start;
-  display: grid;
-  gap: 18px;
   grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.adminGrid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.debugColumns,
+.opsGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .surface {
@@ -251,7 +268,8 @@ button:disabled {
   border-top: 1px solid var(--line);
 }
 
-.videoRow {
+.videoRow,
+.adminListItem {
   align-items: center;
   border-bottom: 1px solid var(--line);
   display: grid;
@@ -260,15 +278,50 @@ button:disabled {
   padding: 16px 0;
 }
 
-.videoRow p {
+.videoRow p,
+.adminListItem p {
   margin-bottom: 6px;
 }
 
-.rowActions {
+.rowActions,
+.adminActions {
   align-items: end;
   display: grid;
   gap: 10px;
   justify-items: end;
+}
+
+.adminList {
+  border-top: 1px solid var(--line);
+}
+
+.adminListItem h3,
+.debugColumns h3 {
+  font-size: 1rem;
+  line-height: 1.25;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.metricTile {
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.metricTile dd {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-top: 8px;
+}
+
+.metric-ready {
+  border-color: #2f8f67;
+}
+
+.metric-failed {
+  border-color: #8f3f36;
 }
 
 .statusPill {
@@ -472,7 +525,11 @@ dd {
   .appHeader,
   .pageGrid,
   .watchLayout,
-  .videoRow {
+  .adminGrid,
+  .debugColumns,
+  .opsGrid,
+  .videoRow,
+  .adminListItem {
     grid-template-columns: 1fr;
   }
 
@@ -488,7 +545,8 @@ dd {
     flex-direction: column;
   }
 
-  .rowActions {
+  .rowActions,
+  .adminActions {
     align-items: start;
     justify-items: start;
   }

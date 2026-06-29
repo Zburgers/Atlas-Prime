@@ -14,6 +14,7 @@ from app.db.session import get_session
 from app.api.deps import get_original_storage, get_processed_hls_storage, get_processing_queue
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
+from app.services.processing_queue import QueueInspection, WorkerInspection
 from app.services.storage import HlsObject, HlsObjectNotFoundError, StoredObject, original_storage_key
 
 
@@ -97,6 +98,16 @@ class FakeProcessingQueue:
             }
         )
         return "task-123"
+
+    def inspect_workers(self, *, timeout: float = 1.0) -> WorkerInspection:
+        return WorkerInspection(
+            ok=True,
+            online_workers=["celery@worker-test"],
+            active_queues={"celery@worker-test": ["media"]},
+        )
+
+    def inspect_queue(self) -> QueueInspection:
+        return QueueInspection(ok=True, media_queue_depth=len(self.jobs))
 
 
 class FakeProcessedHlsStorage:
@@ -428,3 +439,88 @@ def test_hls_unknown_allowed_asset_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
     assert response.json()["detail"]["message"] == "HLS asset not found"
     assert storage.requests == [f"processed/{video_id}/hls/360p/segment_999.ts"]
+
+
+def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Observable playback"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+
+    response = client.post(
+        f"/videos/{video_id}/events",
+        headers=_headers("owner"),
+        json={
+            "event_type": "error",
+            "position_seconds": "1.25",
+            "quality_label": "manifestLoadError",
+            "client_timestamp": "2026-06-29T12:00:00Z",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["video_id"] == video_id
+    assert body["event_type"] == "error"
+    assert body["quality_label"] == "manifestLoadError"
+
+
+def test_admin_ops_reports_worker_and_queue_health(client: TestClient) -> None:
+    _storage, queue = _install_upload_fakes(client)
+
+    response = client.get("/admin/ops", headers=_headers("operator"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["worker"]["online_workers"] == ["celery@worker-test"]
+    assert body["redis"]["media_queue_depth"] == len(queue.jobs)
+
+
+def test_admin_jobs_include_video_failure_context(client: TestClient) -> None:
+    _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Bad observable upload"})
+    video_id = created.json()["id"]
+    client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers("owner"),
+        files={"file": ("lesson.mp4", b"not actually an mp4", "video/mp4")},
+    )
+
+    response = client.get("/admin/jobs", headers=_headers("operator"))
+
+    assert response.status_code == 200
+    assert response.json() == []
+    debug = client.get(f"/admin/videos/{video_id}/debug", headers=_headers("operator"))
+    assert debug.status_code == 200
+    assert debug.json()["video"]["failure_code"] == "UPLOAD_VALIDATION_FAILED"
+
+
+def test_admin_debug_includes_jobs_renditions_and_playback_events(client: TestClient) -> None:
+    _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready debug"})
+    video_id = created.json()["id"]
+    upload = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers("owner"),
+        files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+    )
+    _mark_video_ready(client, video_id=video_id)
+    client.post(
+        f"/videos/{video_id}/events",
+        headers=_headers("owner"),
+        json={"event_type": "player_ready", "quality_label": "hls.js"},
+    )
+
+    jobs = client.get("/admin/jobs", headers=_headers("operator"))
+    debug = client.get(f"/admin/videos/{video_id}/debug", headers=_headers("operator"))
+
+    assert upload.status_code == 200
+    assert jobs.status_code == 200
+    assert jobs.json()[0]["video_title"] == "Ready debug"
+    assert jobs.json()[0]["video_status"] == "ready"
+    assert debug.status_code == 200
+    body = debug.json()
+    assert body["video"]["id"] == video_id
+    assert body["processing_jobs"][0]["status"] == "queued"
+    assert body["renditions"][0]["label"] == "360p"
+    assert body["recent_playback_events"][0]["event_type"] == "player_ready"

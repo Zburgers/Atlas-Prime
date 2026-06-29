@@ -12,6 +12,7 @@ export function AppHeader() {
       <nav aria-label="Primary navigation">
         <Link href="/">Library</Link>
         <Link href="/upload">Upload</Link>
+        <Link href="/admin">Admin</Link>
       </nav>
       <div className="headerAuth">
         <Show when="signed-out">

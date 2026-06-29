@@ -24,6 +24,27 @@ export function WatchClient({ videoId }: { videoId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
 
+  const recordPlaybackEvent = useCallback(
+    async (event_type: "player_ready" | "error" | "unsupported" | "play" | "pause", quality_label?: string) => {
+      try {
+        const token = isSignedIn ? await getToken() : null;
+        await apiRequest(`/videos/${videoId}/events`, {
+          token,
+          method: "POST",
+          body: {
+            event_type,
+            position_seconds: videoRef.current?.currentTime ?? null,
+            quality_label,
+            client_timestamp: new Date().toISOString(),
+          },
+        });
+      } catch {
+        // Playback telemetry should never interrupt viewing.
+      }
+    },
+    [getToken, isSignedIn, videoId],
+  );
+
   const loadVideo = useCallback(async () => {
     setError(null);
     try {
@@ -63,12 +84,14 @@ export function WatchClient({ videoId }: { videoId: string }) {
 
     if (element.canPlayType("application/vnd.apple.mpegurl")) {
       element.src = source;
+      queueMicrotask(() => void recordPlaybackEvent("player_ready", "native"));
       return;
     }
 
     if (!Hls.isSupported()) {
       queueMicrotask(() => {
         setPlayerError("This browser does not support HLS playback through Media Source Extensions.");
+        void recordPlaybackEvent("unsupported");
       });
       return;
     }
@@ -76,14 +99,18 @@ export function WatchClient({ videoId }: { videoId: string }) {
     const hls = new Hls();
     hls.loadSource(source);
     hls.attachMedia(element);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      void recordPlaybackEvent("player_ready", "hls.js");
+    });
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (data.fatal) {
         setPlayerError("Playback failed while loading the API-owned HLS stream.");
+        void recordPlaybackEvent("error", data.type);
       }
     });
 
     return () => hls.destroy();
-  }, [playback]);
+  }, [playback, recordPlaybackEvent]);
 
   return (
     <div className="watchLayout">
@@ -102,7 +129,14 @@ export function WatchClient({ videoId }: { videoId: string }) {
           {loading ? <p>Loading video...</p> : null}
           {error ? <p className="errorText">{error}</p> : null}
           {!loading && !error && playback?.master_playlist_url ? (
-            <video ref={videoRef} controls playsInline poster={playback.thumbnail_url ? backendAssetUrl(playback.thumbnail_url) : undefined} />
+            <video
+              ref={videoRef}
+              controls
+              playsInline
+              poster={playback.thumbnail_url ? backendAssetUrl(playback.thumbnail_url) : undefined}
+              onPause={() => void recordPlaybackEvent("pause")}
+              onPlay={() => void recordPlaybackEvent("play")}
+            />
           ) : null}
           {!loading && !error && !playback?.master_playlist_url ? (
             <div className="playerPlaceholder">

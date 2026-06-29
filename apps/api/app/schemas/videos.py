@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +28,26 @@ class VideoUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=180)
     description: str | None = Field(default=None, max_length=5000)
     privacy: VideoPrivacy | None = None
+
+
+class PlaybackEventCreate(BaseModel):
+    event_type: Literal["player_ready", "play", "pause", "error", "unsupported", "buffering", "quality_change"]
+    position_seconds: Decimal | None = Field(default=None, ge=0)
+    quality_label: str | None = Field(default=None, max_length=40)
+    client_timestamp: datetime | None = None
+
+
+class PlaybackEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID | None
+    video_id: UUID
+    event_type: str
+    position_seconds: Decimal | None
+    quality_label: str | None
+    client_timestamp: datetime | None
+    created_at: datetime
 
 
 class VideoResponse(BaseModel):
@@ -118,3 +139,24 @@ class ErrorResponse(BaseModel):
     error: str
     message: str
     details: dict[str, object] | None = None
+
+
+class AdminJobResponse(ProcessingJobResponse):
+    video_title: str | None = None
+    video_status: VideoStatus | None = None
+    video_failure_code: str | None = None
+    video_failure_message: str | None = None
+
+
+class AdminVideoDebugResponse(BaseModel):
+    video: VideoResponse
+    renditions: list[RenditionResponse]
+    processing_jobs: list[ProcessingJobResponse]
+    recent_playback_events: list[PlaybackEventResponse]
+
+
+class AdminOpsResponse(BaseModel):
+    status: Literal["ok", "degraded"]
+    api: dict[str, object]
+    worker: dict[str, object]
+    redis: dict[str, object]
