@@ -59,12 +59,14 @@ The generated fixture is `fixtures/media/sample-2s.mp4` and is ignored by git.
 `make smoke` validates:
 
 - Compose config is valid.
-- Full stack builds and starts.
+- Full stack builds and starts with local smoke-only dev auth headers enabled.
+- Alembic migrations apply cleanly.
 - API `/healthz` can reach PostgreSQL, Redis, and private MinIO buckets.
 - Web responds on port 3000.
 - API MVP contract metadata keeps `private` as the default privacy and documents API-mediated upload plus API-proxied HLS.
 - Celery media worker responds to ping.
+- A known-good sample MP4 can be uploaded through FastAPI, stored in MinIO, processed by the worker, marked `ready`, and fetched through API-owned HLS manifest, rendition, segment, and thumbnail routes.
+- A second user cannot mutate or play the private ready video.
+- A corrupt MP4-shaped upload is accepted into the processing path, then reaches a visible `failed` state with a failure code.
 
-The full upload -> process -> playback smoke path remains a documented placeholder until Sectors D and E implement the worker transcode path and playback proxy.
-
-Sector C now covers the API-mediated browser -> FastAPI -> MinIO upload path with mocked API tests. Sector F covers Clerk-backed API identity, cross-user private video denial, and private playback denial at the API service boundary. The full browser upload -> process -> playback smoke remains pending Sectors D and E.
+`make smoke` temporarily exports `ATLAS_ALLOW_DEV_AUTH_HEADERS=true` for repeatable local integration checks. Leave that setting disabled for normal Clerk-backed development unless you are intentionally running local smoke/test flows.

@@ -32,6 +32,8 @@ def test_mvp_contract_keeps_private_default_and_canonical_statuses() -> None:
     assert body["default_privacy"] == "private"
     assert body["upload_transport"] == "api-mediated"
     assert body["playback_delivery"] == "api-proxied-hls"
+    assert body["smoke_coverage"]["upload_process_playback_metadata"] == "implemented-by-wave-3-smoke"
+    assert body["smoke_coverage"]["bad_upload_failed_state"] == "implemented-by-wave-3-smoke"
     assert body["video_status_values"] == [
         "draft",
         "uploading",

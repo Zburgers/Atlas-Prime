@@ -104,7 +104,8 @@ async def mvp_contract() -> dict[str, Any]:
         },
         "smoke_coverage": {
             "core_video_metadata_and_processing_status": "implemented-by-sector-b",
-            "upload_process_playback_metadata": "upload-storage-worker-proxy-pending-sectors-c-d-e",
+            "upload_process_playback_metadata": "implemented-by-wave-3-smoke",
             "cross_user_private_playback_denial": "implemented-by-sector-f-api-tests",
+            "bad_upload_failed_state": "implemented-by-wave-3-smoke",
         },
     }
