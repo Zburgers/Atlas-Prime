@@ -14,7 +14,7 @@ from app.services.auth import (
     verify_clerk_session_token,
 )
 from app.services.processing_queue import ProcessingQueue
-from app.services.storage import MinioOriginalStorage, OriginalStorage
+from app.services.storage import MinioOriginalStorage, MinioProcessedHlsStorage, OriginalStorage, ProcessedHlsStorage
 from app.services.users import get_or_create_user
 
 
@@ -111,9 +111,14 @@ def get_original_storage() -> OriginalStorage:
     return MinioOriginalStorage()
 
 
+def get_processed_hls_storage() -> ProcessedHlsStorage:
+    return MinioProcessedHlsStorage()
+
+
 def get_processing_queue() -> ProcessingQueue:
     return ProcessingQueue()
 
 
 OriginalStorageDep = Annotated[OriginalStorage, Depends(get_original_storage)]
+ProcessedHlsStorageDep = Annotated[ProcessedHlsStorage, Depends(get_processed_hls_storage)]
 ProcessingQueueDep = Annotated[ProcessingQueue, Depends(get_processing_queue)]

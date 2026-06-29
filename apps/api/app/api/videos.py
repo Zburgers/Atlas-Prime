@@ -5,7 +5,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Path, Query, Response, UploadFile, status
 
-from app.api.deps import CurrentUserDep, OptionalCurrentUserDep, OriginalStorageDep, ProcessingQueueDep, SessionDep
+from app.api.deps import (
+    CurrentUserDep,
+    OptionalCurrentUserDep,
+    OriginalStorageDep,
+    ProcessedHlsStorageDep,
+    ProcessingQueueDep,
+    SessionDep,
+)
 from app.domain.status import VideoStatus
 from app.schemas.videos import (
     PlaybackResponse,
@@ -20,8 +27,20 @@ from app.schemas.videos import (
 )
 from app.services import uploads as upload_service
 from app.services import videos as video_service
+from app.services.storage import HlsObjectNotFoundError
 
 router = APIRouter()
+
+PLAYLIST_MEDIA_TYPE = "application/vnd.apple.mpegurl"
+SEGMENT_MEDIA_TYPES = {
+    ".ts": "video/mp2t",
+    ".m4s": "video/iso.segment",
+    ".mp4": "video/mp4",
+}
+THUMBNAIL_MEDIA_TYPE = "image/jpeg"
+PLAYLIST_CACHE_CONTROL = "private, no-cache"
+THUMBNAIL_CACHE_CONTROL = "private, max-age=300"
+SEGMENT_CACHE_CONTROL = "private, max-age=31536000, immutable"
 
 
 @router.get("/me", response_model=UserResponse)
@@ -120,14 +139,70 @@ async def hls_asset(
     asset_path: Annotated[str, Path(min_length=1)],
     session: SessionDep,
     user: OptionalCurrentUserDep,
-) -> None:
-    if ".." in asset_path.split("/"):
+    storage: ProcessedHlsStorageDep,
+) -> Response:
+    video = await video_service.video_with_renditions_for_playback(session, user, video_id)
+    storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
+    try:
+        hls_object = storage.get_hls_object(key=storage_key)
+    except HlsObjectNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "NotFound", "message": "HLS asset not found"},
+        ) from None
+
+    headers = {"Cache-Control": cache_control}
+    if hls_object.etag:
+        headers["ETag"] = hls_object.etag
+    if hls_object.content_length is not None:
+        headers["Content-Length"] = str(hls_object.content_length)
+    return Response(content=hls_object.body, media_type=media_type, headers=headers)
+
+
+def _resolve_hls_asset(video: object, asset_path: str) -> tuple[str, str, str]:
+    if "\\" in asset_path or asset_path.startswith("/") or asset_path.startswith(".") or "//" in asset_path:
+        raise _invalid_hls_path()
+    parts = asset_path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise _invalid_hls_path()
+
+    root = f"processed/{video.id}/hls/"
+    expected_key = f"{root}{asset_path}"
+
+    if asset_path == "master.m3u8":
+        if expected_key != video.hls_master_storage_key:
+            raise _invalid_hls_path()
+        return expected_key, PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
+
+    if asset_path == "thumbnail.jpg":
+        if expected_key != video.thumbnail_storage_key:
+            raise _invalid_hls_path()
+        return expected_key, THUMBNAIL_MEDIA_TYPE, THUMBNAIL_CACHE_CONTROL
+
+    if len(parts) != 2:
+        raise _invalid_hls_path()
+
+    rendition_label, filename = parts
+    rendition = next((item for item in video.renditions if item.label == rendition_label), None)
+    if rendition is None:
+        raise _invalid_hls_path()
+
+    if filename == "playlist.m3u8":
+        if expected_key != rendition.playlist_storage_key:
+            raise _invalid_hls_path()
+        return expected_key, PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
+
+    suffix = "." + filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
+    if not filename.startswith("segment_") or suffix not in SEGMENT_MEDIA_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "BadRequest", "message": "Invalid HLS asset path"},
         )
-    await video_service.video_with_renditions_for_playback(session, user, video_id)
+    return expected_key, SEGMENT_MEDIA_TYPES[suffix], SEGMENT_CACHE_CONTROL
+
+
+def _invalid_hls_path() -> HTTPException:
     raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={"error": "NotImplemented", "message": "HLS proxy is owned by Sector E"},
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={"error": "BadRequest", "message": "Invalid HLS asset path"},
     )

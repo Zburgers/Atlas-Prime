@@ -34,6 +34,10 @@ def originals_bucket() -> str:
     return env("MINIO_BUCKET_ORIGINALS", "atlas-originals")
 
 
+def processed_bucket() -> str:
+    return env("MINIO_BUCKET_PROCESSED", "atlas-processed")
+
+
 def upload_max_bytes() -> int:
     raw = env("ATLAS_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024))
     try:

@@ -9,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
+from app.db.models import Video, VideoRendition
 from app.db.session import get_session
-from app.api.deps import get_original_storage, get_processing_queue
+from app.api.deps import get_original_storage, get_processed_hls_storage, get_processing_queue
+from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
-from app.services.storage import StoredObject, original_storage_key
+from app.services.storage import HlsObject, HlsObjectNotFoundError, StoredObject, original_storage_key
 
 
 @pytest.fixture()
@@ -41,11 +43,13 @@ def client() -> Iterator[TestClient]:
 
     asyncio.run(create_schema())
     app.dependency_overrides[get_session] = override_session
+    app.state.test_session_maker = session_maker
     try:
         with TestClient(app) as test_client:
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        del app.state.test_session_maker
         asyncio.run(drop_schema())
 
 
@@ -95,12 +99,63 @@ class FakeProcessingQueue:
         return "task-123"
 
 
+class FakeProcessedHlsStorage:
+    def __init__(self, objects: dict[str, tuple[bytes, str]] | None = None) -> None:
+        self.objects = objects or {}
+        self.requests: list[str] = []
+
+    def get_hls_object(self, *, key: str) -> HlsObject:
+        self.requests.append(key)
+        try:
+            body, content_type = self.objects[key]
+        except KeyError:
+            raise HlsObjectNotFoundError(key)
+        return HlsObject(
+            key=key,
+            body=body,
+            content_type=content_type,
+            content_length=len(body),
+            etag='"test-etag"',
+        )
+
+
 def _install_upload_fakes(client: TestClient) -> tuple[FakeOriginalStorage, FakeProcessingQueue]:
     storage = FakeOriginalStorage()
     queue = FakeProcessingQueue()
     app.dependency_overrides[get_original_storage] = lambda: storage
     app.dependency_overrides[get_processing_queue] = lambda: queue
     return storage, queue
+
+
+def _install_hls_fake(storage: FakeProcessedHlsStorage) -> None:
+    app.dependency_overrides[get_processed_hls_storage] = lambda: storage
+
+
+def _mark_video_ready(client: TestClient, *, video_id: str, privacy: VideoPrivacy = VideoPrivacy.PRIVATE) -> None:
+    import asyncio
+
+    async def mark_ready() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            video.status = VideoStatus.READY.value
+            video.privacy = privacy.value
+            video.hls_master_storage_key = f"processed/{video_id}/hls/master.m3u8"
+            video.thumbnail_storage_key = f"processed/{video_id}/hls/thumbnail.jpg"
+            session.add(
+                VideoRendition(
+                    video_id=video.id,
+                    label="360p",
+                    width=640,
+                    height=360,
+                    target_bitrate=800_000,
+                    playlist_storage_key=f"processed/{video_id}/hls/360p/playlist.m3u8",
+                    status=RenditionStatus.READY.value,
+                )
+            )
+            await session.commit()
+
+    asyncio.run(mark_ready())
 
 
 @pytest.fixture(autouse=True)
@@ -277,3 +332,99 @@ def test_upload_stores_original_and_queues_processing(client: TestClient) -> Non
             "original_storage_key": expected_key,
         }
     ]
+
+
+def test_playback_metadata_and_hls_master_are_served_for_owner(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    master_key = f"processed/{video_id}/hls/master.m3u8"
+    storage = FakeProcessedHlsStorage({master_key: (b"#EXTM3U\n", "application/vnd.apple.mpegurl")})
+    _install_hls_fake(storage)
+
+    metadata = client.get(f"/videos/{video_id}/playback", headers=_headers("owner"))
+    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("owner"))
+
+    assert metadata.status_code == 200
+    assert metadata.json()["master_playlist_url"] == f"/videos/{video_id}/hls/master.m3u8"
+    assert response.status_code == 200
+    assert response.content == b"#EXTM3U\n"
+    assert response.headers["content-type"].startswith("application/vnd.apple.mpegurl")
+    assert response.headers["cache-control"] == "private, no-cache"
+    assert response.headers["etag"] == '"test-etag"'
+    assert storage.requests == [master_key]
+
+
+def test_hls_segment_uses_immutable_cache_headers(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready segment"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    segment_key = f"processed/{video_id}/hls/360p/segment_000.ts"
+    storage = FakeProcessedHlsStorage({segment_key: (b"segment-data", "video/mp2t")})
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/360p/segment_000.ts", headers=_headers("owner"))
+
+    assert response.status_code == 200
+    assert response.content == b"segment-data"
+    assert response.headers["content-type"].startswith("video/mp2t")
+    assert response.headers["cache-control"] == "private, max-age=31536000, immutable"
+    assert storage.requests == [segment_key]
+
+
+def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Private ready"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    storage = FakeProcessedHlsStorage()
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("other"))
+
+    assert response.status_code == 403
+    assert storage.requests == []
+
+
+def test_public_hls_asset_can_be_served_without_identity(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Public ready"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id, privacy=VideoPrivacy.PUBLIC)
+    thumbnail_key = f"processed/{video_id}/hls/thumbnail.jpg"
+    storage = FakeProcessedHlsStorage({thumbnail_key: (b"jpg", "image/jpeg")})
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/thumbnail.jpg")
+
+    assert response.status_code == 200
+    assert response.content == b"jpg"
+    assert response.headers["content-type"].startswith("image/jpeg")
+    assert response.headers["cache-control"] == "private, max-age=300"
+    assert storage.requests == [thumbnail_key]
+
+
+def test_hls_path_traversal_is_rejected_before_storage_read(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Traversal"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    storage = FakeProcessedHlsStorage()
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/%2e%2e/secret.txt", headers=_headers("owner"))
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["message"] == "Invalid HLS asset path"
+    assert storage.requests == []
+
+
+def test_hls_unknown_allowed_asset_returns_404(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Missing object"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    storage = FakeProcessedHlsStorage()
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/360p/segment_999.ts", headers=_headers("owner"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["message"] == "HLS asset not found"
+    assert storage.requests == [f"processed/{video_id}/hls/360p/segment_999.ts"]
