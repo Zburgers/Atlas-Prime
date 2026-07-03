@@ -12,6 +12,7 @@ import {
   type PlaybackResponse,
   type ProcessingStatus,
   type Video,
+  type VideoEngagementResponse,
   type VideoViewResponse,
 } from "../../components/video-api";
 
@@ -24,9 +25,12 @@ export function WatchClient({ videoId }: { videoId: string }) {
   const viewRecordedRef = useRef(false);
   const viewRequestPendingRef = useRef(false);
   const [video, setVideo] = useState<Video | null>(null);
+  const [engagement, setEngagement] = useState<VideoEngagementResponse | null>(null);
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [engagementBusy, setEngagementBusy] = useState(false);
+  const [engagementError, setEngagementError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
 
@@ -80,8 +84,43 @@ export function WatchClient({ videoId }: { videoId: string }) {
     }
   }, [getToken, isSignedIn, videoId]);
 
+  const applyEngagement = useCallback((result: VideoEngagementResponse) => {
+    setEngagement(result);
+    setVideo((current) => (current ? { ...current, like_count: result.like_count } : current));
+  }, []);
+
+  const updateEngagement = useCallback(
+    async (path: string, method: "POST" | "DELETE") => {
+      if (!isSignedIn) {
+        return;
+      }
+      setEngagementBusy(true);
+      setEngagementError(null);
+      try {
+        const token = await getToken();
+        applyEngagement(await apiRequest<VideoEngagementResponse>(path, { token, method }));
+      } catch (err) {
+        setEngagementError(err instanceof ApiError ? err.message : "Unable to update engagement.");
+      } finally {
+        setEngagementBusy(false);
+      }
+    },
+    [applyEngagement, getToken, isSignedIn],
+  );
+
+  const toggleLike = useCallback(async () => {
+    const method = engagement?.liked ? "DELETE" : "POST";
+    await updateEngagement(`/videos/${videoId}/like`, method);
+  }, [engagement?.liked, updateEngagement, videoId]);
+
+  const toggleWatchLater = useCallback(async () => {
+    const method = engagement?.saved_to_watch_later ? "DELETE" : "POST";
+    await updateEngagement(`/videos/${videoId}/watch-later`, method);
+  }, [engagement?.saved_to_watch_later, updateEngagement, videoId]);
+
   const loadVideo = useCallback(async () => {
     setError(null);
+    setEngagementError(null);
     try {
       const token = isSignedIn ? await getToken() : null;
       const [videoResponse, statusResponse] = await Promise.all([
@@ -95,12 +134,21 @@ export function WatchClient({ videoId }: { videoId: string }) {
       } else {
         setPlayback(null);
       }
+      if (isSignedIn) {
+        try {
+          applyEngagement(await apiRequest<VideoEngagementResponse>(`/videos/${videoId}/engagement`, { token }));
+        } catch {
+          setEngagement(null);
+        }
+      } else {
+        setEngagement(null);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load this video.");
     } finally {
       setLoading(false);
     }
-  }, [getToken, isSignedIn, videoId]);
+  }, [applyEngagement, getToken, isSignedIn, videoId]);
 
   useEffect(() => {
     if (isLoaded) {
@@ -194,6 +242,24 @@ export function WatchClient({ videoId }: { videoId: string }) {
         {video ? <StatusPanel video={video} processingStatus={status} /> : null}
         {video ? (
           <section className="surface compactSurface">
+            <p className="eyebrow">Engagement</p>
+            <div className="engagementActions">
+              <button className="secondaryButton" type="button" onClick={toggleLike} disabled={!isSignedIn || engagementBusy}>
+                {engagement?.liked ? "Liked" : "Like"}
+              </button>
+              <button className="secondaryButton" type="button" onClick={toggleWatchLater} disabled={!isSignedIn || engagementBusy}>
+                {engagement?.saved_to_watch_later ? "Saved" : "Watch later"}
+              </button>
+            </div>
+            <p className="metaLine">
+              {formatCount(video.like_count, "like")}
+              {!isSignedIn ? " / sign in to save or like" : ""}
+            </p>
+            {engagementError ? <p className="errorText">{engagementError}</p> : null}
+          </section>
+        ) : null}
+        {video ? (
+          <section className="surface compactSurface">
             <p className="eyebrow">Metadata</p>
             <dl className="detailGrid">
               <div>
@@ -237,4 +303,8 @@ function createPlaybackSessionId() {
 
 function formatViewCount(value: number) {
   return `${value.toLocaleString()} ${value === 1 ? "view" : "views"}`;
+}
+
+function formatCount(value: number, label: string) {
+  return `${value.toLocaleString()} ${label}${value === 1 ? "" : "s"}`;
 }

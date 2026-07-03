@@ -1376,12 +1376,17 @@ Acceptance:
 
 ### Issue 5 - Likes And Watch Later
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/alembic/versions/<timestamp>_video_reactions_saves.py`
 - Modify: `apps/api/app/db/models.py`
 - Create: `apps/api/app/services/reactions.py`
 - Modify: `apps/api/app/api/videos.py`
+- Modify: `apps/api/app/schemas/videos.py`
+- Modify: `apps/web/app/components/video-api.ts`
+- Modify: `apps/web/app/components/video-list.tsx`
 - Modify: `apps/web/app/watch/[videoId]/watch-client.tsx`
 - Test: `apps/api/tests/test_reactions.py`
 
@@ -1623,26 +1628,26 @@ Documentation rules:
 
 ## 18. Immediate Recommended Next Step
 
-Start with Phase 1, Issue 5:
+Start with Phase 1, Issue 6:
 
 ```txt
-Likes And Watch Later
+Creator Studio Video Manager
 ```
 
 Reason:
 
-- Public browse, channel pages, search, views, and impressions are now in place.
-- Likes and watch later are the next viewer intent signals needed before deterministic feed ranking and creator analytics become useful.
-- The work can reuse the existing auth, video privacy, and watch-page surfaces without adding new infrastructure.
+- Public browse, channel pages, search, views, impressions, likes, and watch-later saves are now in place.
+- Creator Studio is the next owner-facing surface needed to manage videos, privacy, metadata, and failed processing states as the platform grows.
+- It can reuse existing owner-only video access and processing-status contracts without new infrastructure.
 - It does not require new infrastructure.
 
-After Issue 5, do:
+After Issue 6, do:
 
 ```txt
-6. Creator Studio Video Manager
 7. Comments V1
 8. Subscriptions
 9. Feed V1 Ranking
+10. Thumbnail Manager
 ```
 
 This order keeps the platform demoable after every increment.

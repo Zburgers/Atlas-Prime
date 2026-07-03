@@ -73,6 +73,7 @@ class Video(Base):
         CheckConstraint("source_bitrate is null or source_bitrate > 0", name="ck_videos_source_bitrate_positive"),
         CheckConstraint("view_count >= 0", name="ck_videos_view_count_nonnegative"),
         CheckConstraint("impression_count >= 0", name="ck_videos_impression_count_nonnegative"),
+        CheckConstraint("like_count >= 0", name="ck_videos_like_count_nonnegative"),
         Index("ix_videos_owner_created_at", "owner_id", "created_at"),
         Index("ix_videos_owner_status", "owner_id", "status"),
         Index("ix_videos_channel_created_at", "channel_id", "created_at"),
@@ -97,6 +98,7 @@ class Video(Base):
     source_bitrate: Mapped[int | None]
     view_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     impression_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    like_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     failure_code: Mapped[str | None] = mapped_column(Text)
     failure_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -108,6 +110,8 @@ class Video(Base):
     processing_jobs: Mapped[list[VideoProcessingJob]] = relationship(back_populates="video", cascade="all, delete-orphan")
     impressions: Mapped[list[VideoImpression]] = relationship(back_populates="video", cascade="all, delete-orphan")
     views: Mapped[list[VideoView]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    reactions: Mapped[list[VideoReaction]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    saves: Mapped[list[VideoSave]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
 
 class VideoRendition(Base):
@@ -214,3 +218,37 @@ class VideoView(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="views")
+
+
+class VideoReaction(Base):
+    __tablename__ = "video_reactions"
+    __table_args__ = (
+        CheckConstraint("reaction_type in ('like')", name="ck_video_reactions_type"),
+        UniqueConstraint("user_id", "video_id", "reaction_type", name="uq_video_reactions_user_video_type"),
+        Index("ix_video_reactions_video_created_at", "video_id", "created_at"),
+        Index("ix_video_reactions_user_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    reaction_type: Mapped[str] = mapped_column(Text, nullable=False, default="like", server_default="like")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="reactions")
+
+
+class VideoSave(Base):
+    __tablename__ = "video_saves"
+    __table_args__ = (
+        UniqueConstraint("user_id", "video_id", name="uq_video_saves_user_video"),
+        Index("ix_video_saves_video_created_at", "video_id", "created_at"),
+        Index("ix_video_saves_user_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="saves")

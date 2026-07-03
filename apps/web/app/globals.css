@@ -387,6 +387,13 @@ button:disabled {
   justify-content: space-between;
 }
 
+.engagementActions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
 .videoRow,
 .adminListItem {
   align-items: center;

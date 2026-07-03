@@ -241,7 +241,12 @@ function formatDuration(value: string) {
 }
 
 function videoMeta(video: VideoListItem) {
-  const parts = [formatCount(video.view_count, "view"), video.privacy, `created ${formatDate(video.created_at)}`];
+  const parts = [
+    formatCount(video.view_count, "view"),
+    formatCount(video.like_count, "like"),
+    video.privacy,
+    `created ${formatDate(video.created_at)}`,
+  ];
   if (video.width && video.height) {
     parts.push(`${video.width}x${video.height}`);
   }

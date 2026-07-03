@@ -24,6 +24,7 @@ from app.schemas.videos import (
     ProcessingStatusResponse,
     UserResponse,
     VideoCreate,
+    VideoEngagementResponse,
     VideoImpressionCreate,
     VideoImpressionResponse,
     VideoListItemResponse,
@@ -35,6 +36,7 @@ from app.schemas.videos import (
     VideoUpdate,
 )
 from app.services import analytics as analytics_service
+from app.services import reactions as reactions_service
 from app.services import uploads as upload_service
 from app.services import videos as video_service
 from app.services.storage import HlsObjectNotFoundError
@@ -245,6 +247,53 @@ async def record_video_view(
     user: OptionalCurrentUserDep,
 ) -> VideoViewResponse:
     return await analytics_service.record_view(session, user, video_id, payload, response)
+
+
+@router.get("/videos/{video_id}/engagement", response_model=VideoEngagementResponse)
+async def get_video_engagement(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.get_engagement(session, user, video_id)
+
+
+@router.post("/videos/{video_id}/like", response_model=VideoEngagementResponse)
+async def like_video(
+    video_id: UUID,
+    response: Response,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.like_video(session, user, video_id, response)
+
+
+@router.delete("/videos/{video_id}/like", response_model=VideoEngagementResponse)
+async def unlike_video(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.unlike_video(session, user, video_id)
+
+
+@router.post("/videos/{video_id}/watch-later", response_model=VideoEngagementResponse)
+async def save_video_for_later(
+    video_id: UUID,
+    response: Response,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.save_video(session, user, video_id, response)
+
+
+@router.delete("/videos/{video_id}/watch-later", response_model=VideoEngagementResponse)
+async def remove_video_from_watch_later(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.remove_saved_video(session, user, video_id)
 
 
 def _resolve_hls_asset(video: object, asset_path: str) -> tuple[str, str, str]:

@@ -80,6 +80,13 @@ class VideoViewResponse(BaseModel):
     threshold_seconds: Decimal
 
 
+class VideoEngagementResponse(BaseModel):
+    video_id: UUID
+    liked: bool
+    like_count: int
+    saved_to_watch_later: bool
+
+
 class VideoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -100,6 +107,7 @@ class VideoResponse(BaseModel):
     source_bitrate: int | None
     view_count: int
     impression_count: int
+    like_count: int
     failure_code: str | None
     failure_message: str | None
     created_at: datetime
@@ -123,6 +131,7 @@ class VideoListItemResponse(BaseModel):
     height: int | None
     view_count: int
     impression_count: int
+    like_count: int
     failure_code: str | None
     failure_message: str | None
     created_at: datetime

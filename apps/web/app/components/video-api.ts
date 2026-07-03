@@ -28,6 +28,7 @@ export type Video = {
   source_bitrate: number | null;
   view_count: number;
   impression_count: number;
+  like_count: number;
   failure_code: string | null;
   failure_message: string | null;
   created_at: string;
@@ -49,6 +50,7 @@ export type VideoListItem = {
   height: number | null;
   view_count: number;
   impression_count: number;
+  like_count: number;
   failure_code: string | null;
   failure_message: string | null;
   created_at: string;
@@ -132,6 +134,13 @@ export type VideoViewResponse = {
   counted: boolean;
   view_count: number;
   threshold_seconds: string;
+};
+
+export type VideoEngagementResponse = {
+  video_id: string;
+  liked: boolean;
+  like_count: number;
+  saved_to_watch_later: boolean;
 };
 
 export type AdminOps = {
