@@ -50,6 +50,36 @@ class PlaybackEventResponse(BaseModel):
     created_at: datetime
 
 
+class VideoImpressionCreate(BaseModel):
+    surface: str = Field(min_length=1, max_length=40)
+    position: int = Field(ge=0)
+    request_id: str | None = Field(default=None, max_length=120)
+
+
+class VideoImpressionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID | None
+    video_id: UUID
+    surface: str
+    position: int
+    request_id: str | None
+    created_at: datetime
+
+
+class VideoViewCreate(BaseModel):
+    session_id: str = Field(min_length=3, max_length=120)
+    position_seconds: Decimal = Field(ge=0)
+
+
+class VideoViewResponse(BaseModel):
+    video_id: UUID
+    counted: bool
+    view_count: int
+    threshold_seconds: Decimal
+
+
 class VideoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -68,6 +98,31 @@ class VideoResponse(BaseModel):
     video_codec: str | None
     audio_codec: str | None
     source_bitrate: int | None
+    view_count: int
+    impression_count: int
+    failure_code: str | None
+    failure_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class VideoListItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    channel_id: UUID | None = None
+    title: str
+    description: str | None
+    privacy: VideoPrivacy
+    status: VideoStatus
+    thumbnail_url: str | None = None
+    channel_handle: str | None = None
+    channel_display_name: str | None = None
+    duration_seconds: Decimal | None
+    width: int | None
+    height: int | None
+    view_count: int
+    impression_count: int
     failure_code: str | None
     failure_message: str | None
     created_at: datetime
@@ -75,7 +130,7 @@ class VideoResponse(BaseModel):
 
 
 class VideoListResponse(BaseModel):
-    items: list[VideoResponse]
+    items: list[VideoListItemResponse]
     total: int
     page: int
     page_size: int

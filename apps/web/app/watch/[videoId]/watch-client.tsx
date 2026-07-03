@@ -12,11 +12,17 @@ import {
   type PlaybackResponse,
   type ProcessingStatus,
   type Video,
+  type VideoViewResponse,
 } from "../../components/video-api";
+
+const VIEW_COUNT_THRESHOLD_SECONDS = 5;
 
 export function WatchClient({ videoId }: { videoId: string }) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const viewSessionIdRef = useRef(createPlaybackSessionId());
+  const viewRecordedRef = useRef(false);
+  const viewRequestPendingRef = useRef(false);
   const [video, setVideo] = useState<Video | null>(null);
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
@@ -45,6 +51,35 @@ export function WatchClient({ videoId }: { videoId: string }) {
     [getToken, isSignedIn, videoId],
   );
 
+  const recordView = useCallback(async () => {
+    const element = videoRef.current;
+    if (!element || viewRecordedRef.current || viewRequestPendingRef.current) {
+      return;
+    }
+    if (element.currentTime < VIEW_COUNT_THRESHOLD_SECONDS) {
+      return;
+    }
+
+    viewRequestPendingRef.current = true;
+    try {
+      const token = isSignedIn ? await getToken() : null;
+      const result = await apiRequest<VideoViewResponse>(`/videos/${videoId}/views`, {
+        token,
+        method: "POST",
+        body: {
+          session_id: viewSessionIdRef.current,
+          position_seconds: Number(element.currentTime.toFixed(3)),
+        },
+      });
+      viewRecordedRef.current = true;
+      setVideo((current) => (current ? { ...current, view_count: result.view_count } : current));
+    } catch {
+      // View telemetry should never interrupt playback.
+    } finally {
+      viewRequestPendingRef.current = false;
+    }
+  }, [getToken, isSignedIn, videoId]);
+
   const loadVideo = useCallback(async () => {
     setError(null);
     try {
@@ -72,6 +107,12 @@ export function WatchClient({ videoId }: { videoId: string }) {
       queueMicrotask(() => void loadVideo());
     }
   }, [isLoaded, loadVideo]);
+
+  useEffect(() => {
+    viewSessionIdRef.current = createPlaybackSessionId();
+    viewRecordedRef.current = false;
+    viewRequestPendingRef.current = false;
+  }, [videoId]);
 
   useEffect(() => {
     if (!playback?.master_playlist_url || !videoRef.current) {
@@ -136,6 +177,7 @@ export function WatchClient({ videoId }: { videoId: string }) {
               poster={playback.thumbnail_url ? backendAssetUrl(playback.thumbnail_url) : undefined}
               onPause={() => void recordPlaybackEvent("pause")}
               onPlay={() => void recordPlaybackEvent("play")}
+              onTimeUpdate={() => void recordView()}
             />
           ) : null}
           {!loading && !error && !playback?.master_playlist_url ? (
@@ -159,6 +201,10 @@ export function WatchClient({ videoId }: { videoId: string }) {
                 <dd>{video.privacy}</dd>
               </div>
               <div>
+                <dt>Views</dt>
+                <dd>{formatViewCount(video.view_count)}</dd>
+              </div>
+              <div>
                 <dt>Resolution</dt>
                 <dd>{video.width && video.height ? `${video.width}x${video.height}` : "Pending"}</dd>
               </div>
@@ -179,4 +225,16 @@ export function WatchClient({ videoId }: { videoId: string }) {
       </aside>
     </div>
   );
+}
+
+function createPlaybackSessionId() {
+  const randomId =
+    typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `watch-${randomId}`;
+}
+
+function formatViewCount(value: number) {
+  return `${value.toLocaleString()} ${value === 1 ? "view" : "views"}`;
 }

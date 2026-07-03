@@ -196,6 +196,58 @@ def test_private_video_is_owner_only(client: TestClient) -> None:
     assert other_response.status_code == 403
 
 
+def test_public_video_list_excludes_private_unlisted_and_non_ready_videos(client: TestClient) -> None:
+    public_video = client.post("/videos", headers=_headers("owner"), json={"title": "Public ready"}).json()
+    private_video = client.post("/videos", headers=_headers("owner"), json={"title": "Private ready"}).json()
+    unlisted_video = client.post("/videos", headers=_headers("owner"), json={"title": "Unlisted ready"}).json()
+    public_draft = client.post("/videos", headers=_headers("owner"), json={"title": "Public draft"}).json()
+
+    _mark_video_ready(client, video_id=public_video["id"], privacy=VideoPrivacy.PUBLIC)
+    _mark_video_ready(client, video_id=private_video["id"], privacy=VideoPrivacy.PRIVATE)
+    _mark_video_ready(client, video_id=unlisted_video["id"], privacy=VideoPrivacy.UNLISTED)
+    client.patch(f"/videos/{public_draft['id']}", headers=_headers("owner"), json={"privacy": "public"})
+
+    response = client.get("/videos")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["title"] for item in body["items"]] == ["Public ready"]
+    item = body["items"][0]
+    assert item["thumbnail_url"] == f"/videos/{public_video['id']}/hls/thumbnail.jpg"
+    assert "thumbnail_storage_key" not in item
+    assert "hls_master_storage_key" not in item
+
+
+def test_unlisted_ready_video_is_directly_readable_but_not_publicly_listed(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Share by link"}).json()
+    _mark_video_ready(client, video_id=created["id"], privacy=VideoPrivacy.UNLISTED)
+
+    list_response = client.get("/videos")
+    direct_response = client.get(f"/videos/{created['id']}")
+
+    assert list_response.status_code == 200
+    assert list_response.json()["items"] == []
+    assert direct_response.status_code == 200
+    assert direct_response.json()["privacy"] == "unlisted"
+
+
+def test_signed_in_video_list_includes_owned_drafts_and_public_ready_videos(client: TestClient) -> None:
+    own_draft = client.post("/videos", headers=_headers("owner"), json={"title": "Own draft"}).json()
+    public_video = client.post("/videos", headers=_headers("other"), json={"title": "Other public"}).json()
+    other_private = client.post("/videos", headers=_headers("other"), json={"title": "Other private"}).json()
+    _mark_video_ready(client, video_id=public_video["id"], privacy=VideoPrivacy.PUBLIC)
+    _mark_video_ready(client, video_id=other_private["id"], privacy=VideoPrivacy.PRIVATE)
+
+    response = client.get("/videos", headers=_headers("owner"))
+
+    assert response.status_code == 200
+    titles = {item["title"] for item in response.json()["items"]}
+    assert titles == {"Own draft", "Other public"}
+    own_item = next(item for item in response.json()["items"] if item["id"] == own_draft["id"])
+    assert own_item["status"] == "draft"
+
+
 def test_auth_required_without_clerk_token_or_enabled_dev_header(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

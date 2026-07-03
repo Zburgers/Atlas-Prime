@@ -26,6 +26,29 @@ export type Video = {
   video_codec: string | null;
   audio_codec: string | null;
   source_bitrate: number | null;
+  view_count: number;
+  impression_count: number;
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VideoListItem = {
+  id: string;
+  channel_id: string | null;
+  title: string;
+  description: string | null;
+  privacy: VideoPrivacy;
+  status: VideoStatus;
+  thumbnail_url: string | null;
+  channel_handle: string | null;
+  channel_display_name: string | null;
+  duration_seconds: string | null;
+  width: number | null;
+  height: number | null;
+  view_count: number;
+  impression_count: number;
   failure_code: string | null;
   failure_message: string | null;
   created_at: string;
@@ -33,10 +56,34 @@ export type Video = {
 };
 
 export type VideoListResponse = {
-  items: Video[];
+  items: VideoListItem[];
   total: number;
   page: number;
   page_size: number;
+};
+
+export type SearchResponse = {
+  query: string;
+  items: VideoListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export type Channel = {
+  id: string;
+  owner_user_id: string;
+  handle: string;
+  display_name: string;
+  description: string | null;
+  avatar_storage_key: string | null;
+  banner_storage_key: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PublicChannelResponse = Channel & {
+  videos: VideoListItem[];
 };
 
 export type ProcessingJob = {
@@ -68,6 +115,23 @@ export type PlaybackEvent = {
   quality_label: string | null;
   client_timestamp: string | null;
   created_at: string;
+};
+
+export type VideoImpression = {
+  id: string;
+  user_id: string | null;
+  video_id: string;
+  surface: string;
+  position: number;
+  request_id: string | null;
+  created_at: string;
+};
+
+export type VideoViewResponse = {
+  video_id: string;
+  counted: boolean;
+  view_count: number;
+  threshold_seconds: string;
 };
 
 export type AdminOps = {

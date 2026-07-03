@@ -24,11 +24,17 @@ from app.schemas.videos import (
     ProcessingStatusResponse,
     UserResponse,
     VideoCreate,
+    VideoImpressionCreate,
+    VideoImpressionResponse,
+    VideoListItemResponse,
     VideoListResponse,
     VideoResponse,
     VideoUploadResponse,
+    VideoViewCreate,
+    VideoViewResponse,
     VideoUpdate,
 )
+from app.services import analytics as analytics_service
 from app.services import uploads as upload_service
 from app.services import videos as video_service
 from app.services.storage import HlsObjectNotFoundError
@@ -46,6 +52,25 @@ THUMBNAIL_MEDIA_TYPE = "image/jpeg"
 PLAYLIST_CACHE_CONTROL = "private, no-cache"
 THUMBNAIL_CACHE_CONTROL = "private, max-age=300"
 SEGMENT_CACHE_CONTROL = "private, max-age=31536000, immutable"
+
+
+def _thumbnail_url_for(video: object) -> str | None:
+    if getattr(video, "status", None) != VideoStatus.READY.value:
+        return None
+    if not getattr(video, "thumbnail_storage_key", None):
+        return None
+    return f"/videos/{video.id}/hls/thumbnail.jpg"
+
+
+def video_list_item(video: object) -> VideoListItemResponse:
+    channel = getattr(video, "channel", None)
+    return VideoListItemResponse.model_validate(video).model_copy(
+        update={
+            "thumbnail_url": _thumbnail_url_for(video),
+            "channel_handle": getattr(channel, "handle", None),
+            "channel_display_name": getattr(channel, "display_name", None),
+        }
+    )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -66,7 +91,7 @@ async def list_videos(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> VideoListResponse:
     items, total = await video_service.list_visible_videos(session, user, page, page_size)
-    return VideoListResponse(items=items, total=total, page=page, page_size=page_size)
+    return VideoListResponse(items=[video_list_item(video) for video in items], total=total, page=page, page_size=page_size)
 
 
 @router.get("/videos/{video_id}", response_model=VideoResponse)
@@ -199,6 +224,27 @@ async def record_playback_event(
             payload.quality_label,
         )
     return event
+
+
+@router.post("/videos/{video_id}/impressions", response_model=VideoImpressionResponse, status_code=status.HTTP_201_CREATED)
+async def record_video_impression(
+    video_id: UUID,
+    payload: VideoImpressionCreate,
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+) -> object:
+    return await analytics_service.record_impression(session, user, video_id, payload)
+
+
+@router.post("/videos/{video_id}/views", response_model=VideoViewResponse)
+async def record_video_view(
+    video_id: UUID,
+    payload: VideoViewCreate,
+    response: Response,
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+) -> VideoViewResponse:
+    return await analytics_service.record_view(session, user, video_id, payload, response)
 
 
 def _resolve_hls_asset(video: object, asset_path: str) -> tuple[str, str, str]:

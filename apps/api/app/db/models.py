@@ -31,10 +31,35 @@ class User(Base):
     clerk_user_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+    channel: Mapped[Channel | None] = relationship(back_populates="owner", cascade="all, delete-orphan", uselist=False)
     videos: Mapped[list[Video]] = relationship(back_populates="owner", cascade="all, delete-orphan")
 
 
 Index("ix_users_lower_email", func.lower(User.email))
+
+
+class Channel(Base):
+    __tablename__ = "channels"
+    __table_args__ = (
+        CheckConstraint("length(handle) >= 3", name="ck_channels_handle_min_length"),
+        CheckConstraint("length(display_name) >= 1", name="ck_channels_display_name_min_length"),
+        UniqueConstraint("owner_user_id", name="uq_channels_owner_user_id"),
+        UniqueConstraint("handle", name="uq_channels_handle"),
+        Index("ix_channels_handle", "handle"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    handle: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    avatar_storage_key: Mapped[str | None] = mapped_column(Text)
+    banner_storage_key: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    owner: Mapped[User] = relationship(back_populates="channel")
+    videos: Mapped[list[Video]] = relationship(back_populates="channel")
 
 
 class Video(Base):
@@ -46,13 +71,17 @@ class Video(Base):
         CheckConstraint("width is null or width > 0", name="ck_videos_width_positive"),
         CheckConstraint("height is null or height > 0", name="ck_videos_height_positive"),
         CheckConstraint("source_bitrate is null or source_bitrate > 0", name="ck_videos_source_bitrate_positive"),
+        CheckConstraint("view_count >= 0", name="ck_videos_view_count_nonnegative"),
+        CheckConstraint("impression_count >= 0", name="ck_videos_impression_count_nonnegative"),
         Index("ix_videos_owner_created_at", "owner_id", "created_at"),
         Index("ix_videos_owner_status", "owner_id", "status"),
+        Index("ix_videos_channel_created_at", "channel_id", "created_at"),
         Index("ix_videos_public_ready", "privacy", "status", postgresql_where="status = 'ready'"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     privacy: Mapped[str] = mapped_column(Text, nullable=False, default=VideoPrivacy.PRIVATE.value, server_default=VideoPrivacy.PRIVATE.value)
@@ -66,14 +95,19 @@ class Video(Base):
     video_codec: Mapped[str | None] = mapped_column(Text)
     audio_codec: Mapped[str | None] = mapped_column(Text)
     source_bitrate: Mapped[int | None]
+    view_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    impression_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     failure_code: Mapped[str | None] = mapped_column(Text)
     failure_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     owner: Mapped[User] = relationship(back_populates="videos")
+    channel: Mapped[Channel | None] = relationship(back_populates="videos")
     renditions: Mapped[list[VideoRendition]] = relationship(back_populates="video", cascade="all, delete-orphan")
     processing_jobs: Mapped[list[VideoProcessingJob]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    impressions: Mapped[list[VideoImpression]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    views: Mapped[list[VideoView]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
 
 class VideoRendition(Base):
@@ -142,3 +176,41 @@ class PlaybackEvent(Base):
     quality_label: Mapped[str | None] = mapped_column(Text)
     client_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class VideoImpression(Base):
+    __tablename__ = "video_impressions"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_video_impressions_position_nonnegative"),
+        Index("ix_video_impressions_video_created_at", "video_id", "created_at"),
+        Index("ix_video_impressions_request_id", "request_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    surface: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(nullable=False)
+    request_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="impressions")
+
+
+class VideoView(Base):
+    __tablename__ = "video_views"
+    __table_args__ = (
+        CheckConstraint("position_seconds >= 0", name="ck_video_views_position_nonnegative"),
+        UniqueConstraint("video_id", "session_id", name="uq_video_views_video_session"),
+        Index("ix_video_views_video_created_at", "video_id", "created_at"),
+        Index("ix_video_views_user_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    position_seconds: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="views")

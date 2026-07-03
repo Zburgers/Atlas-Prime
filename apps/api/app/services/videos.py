@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import User, Video, VideoProcessingJob
 from app.domain.status import JobStatus, VideoPrivacy, VideoStatus, validate_video_transition
 from app.schemas.videos import ProcessingStatusResponse, VideoCreate, VideoUpdate
+from app.services.channels import ensure_default_channel
 
 
 def _not_found() -> HTTPException:
@@ -34,7 +35,8 @@ def _conflict(message: str, details: dict[str, object] | None = None) -> HTTPExc
 
 
 async def create_video(session: AsyncSession, owner: User, payload: VideoCreate) -> Video:
-    video = Video(owner_id=owner.id, title=payload.title, description=payload.description)
+    channel = await ensure_default_channel(session, owner)
+    video = Video(owner_id=owner.id, channel_id=channel.id, title=payload.title, description=payload.description)
     session.add(video)
     await session.commit()
     await session.refresh(video)
@@ -42,13 +44,12 @@ async def create_video(session: AsyncSession, owner: User, payload: VideoCreate)
 
 
 async def list_visible_videos(session: AsyncSession, user: User | None, page: int, page_size: int) -> tuple[list[Video], int]:
-    public_ready = (Video.status == VideoStatus.READY.value) & (
-        Video.privacy.in_([VideoPrivacy.PUBLIC.value, VideoPrivacy.UNLISTED.value])
-    )
+    public_ready = (Video.status == VideoStatus.READY.value) & (Video.privacy == VideoPrivacy.PUBLIC.value)
     visible = public_ready if user is None else or_(Video.owner_id == user.id, public_ready)
     total = await session.scalar(select(func.count()).select_from(Video).where(visible))
     result = await session.execute(
         select(Video)
+        .options(selectinload(Video.channel))
         .where(visible)
         .order_by(Video.created_at.desc())
         .offset((page - 1) * page_size)

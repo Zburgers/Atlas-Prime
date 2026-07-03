@@ -7,8 +7,9 @@ These documents define the initial engineering foundation for Atlas Prime, a lea
 1. `docs/00-ground-truth-mvp-spec.md` — canonical product and architecture scope.
 2. `docs/01-agent-operating-contract.md` — rules every implementation agent must follow.
 3. `docs/02-owner-evaluation-and-rollout-guide.md` — dependency order, review gates, and acceptance criteria for the human engineering owner.
-4. `docs/sectors/*.md` — sector-specific implementation manifests.
-5. `memory/README.md` and `memory/_TEMPLATE.md` — required minimal changelog / ADR protocol.
+4. `docs/plans/02-fullplatform-vision.md` — post-MVP full-platform rollout, target architecture, and phased issue backlog.
+5. `docs/sectors/*.md` — sector-specific implementation manifests.
+6. `memory/README.md` and `memory/_TEMPLATE.md` — required minimal changelog / ADR protocol.
 
 ## Sector map
 
