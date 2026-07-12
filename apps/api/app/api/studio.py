@@ -19,7 +19,7 @@ def _thumbnail_url_for(video: object) -> str | None:
         return None
     if not getattr(video, "thumbnail_storage_key", None):
         return None
-    return f"/videos/{video.id}/hls/thumbnail.jpg"
+    return f"/videos/{video.id}/thumbnail"
 
 
 def _studio_video_item(video: object) -> VideoListItemResponse:

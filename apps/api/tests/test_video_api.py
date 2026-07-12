@@ -214,7 +214,7 @@ def test_public_video_list_excludes_private_unlisted_and_non_ready_videos(client
     assert body["total"] == 1
     assert [item["title"] for item in body["items"]] == ["Public ready"]
     item = body["items"][0]
-    assert item["thumbnail_url"] == f"/videos/{public_video['id']}/hls/thumbnail.jpg"
+    assert item["thumbnail_url"] == f"/videos/{public_video['id']}/thumbnail"
     assert "thumbnail_storage_key" not in item
     assert "hls_master_storage_key" not in item
 

@@ -13,6 +13,7 @@ from app.api.comments import router as comments_router
 from app.api.feed import router as feed_router
 from app.api.search import router as search_router
 from app.api.studio import router as studio_router
+from app.api.thumbnails import router as thumbnails_router
 from app.api.videos import router as videos_router
 from app.domain.status import CANONICAL_VIDEO_STATUS_VALUES, PRIVACY_VALUES
 
@@ -25,6 +26,7 @@ app.include_router(channels_router)
 app.include_router(search_router)
 app.include_router(feed_router)
 app.include_router(studio_router)
+app.include_router(thumbnails_router)
 app.include_router(admin_router)
 
 

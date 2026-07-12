@@ -158,6 +158,19 @@ export type VideoViewResponse = {
   threshold_seconds: string;
 };
 
+export type Thumbnail = {
+  id: string;
+  source: "generated" | "custom";
+  content_type: string;
+  width: number;
+  height: number;
+  selected: boolean;
+  url: string;
+  created_at: string;
+};
+
+export type ThumbnailListResponse = { items: Thumbnail[] };
+
 export type VideoEngagementResponse = {
   video_id: string;
   liked: boolean;

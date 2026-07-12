@@ -109,7 +109,7 @@ def test_search_returns_only_public_ready_videos(client: TestClient) -> None:
     assert body["query"] == "needle"
     assert body["total"] == 1
     assert [item["title"] for item in body["items"]] == ["Needle public"]
-    assert body["items"][0]["thumbnail_url"] == f"/videos/{public_video['id']}/hls/thumbnail.jpg"
+    assert body["items"][0]["thumbnail_url"] == f"/videos/{public_video['id']}/thumbnail"
     assert "thumbnail_storage_key" not in body["items"][0]
     assert "hls_master_storage_key" not in body["items"][0]
 

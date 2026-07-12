@@ -730,6 +730,11 @@ dd {
   gap: 8px;
 }
 
+.thumbnailGrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin-top: 20px; }
+.thumbnailCandidate { border: 1px solid var(--line); padding: 10px; }
+.thumbnailCandidate img { display: block; height: auto; width: 100%; }
+.thumbnailCandidate div { align-items: center; display: flex; justify-content: space-between; margin-top: 8px; }
+
 .authPanel {
   border-top: 1px solid var(--line);
   margin-top: 16px;

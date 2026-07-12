@@ -49,6 +49,9 @@ class ProcessedHlsStorage:
     def get_hls_object(self, *, key: str) -> HlsObject:
         raise NotImplementedError
 
+    def put_thumbnail(self, *, key: str, body: BinaryIO, content_type: str) -> None:
+        raise NotImplementedError
+
 
 class MinioOriginalStorage(OriginalStorage):
     def __init__(self) -> None:
@@ -112,6 +115,10 @@ class MinioProcessedHlsStorage(ProcessedHlsStorage):
             content_length=response.get("ContentLength"),
             etag=response.get("ETag"),
         )
+
+    def put_thumbnail(self, *, key: str, body: BinaryIO, content_type: str) -> None:
+        body.seek(0)
+        self._client.upload_fileobj(body, self._bucket, key, ExtraArgs={"ContentType": content_type})
 
 
 def original_storage_key(video_id: UUID, extension: str) -> str:

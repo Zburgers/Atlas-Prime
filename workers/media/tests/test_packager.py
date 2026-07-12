@@ -30,6 +30,7 @@ def test_probe_and_package_sample_fixture(tmp_path: Path) -> None:
     assert (result.hls_root / "thumbnail.jpg").stat().st_size > 0
     assert result.master_storage_key.endswith("/hls/master.m3u8")
     assert result.thumbnail_storage_key.endswith("/hls/thumbnail.jpg")
+    assert result.generated_thumbnail_storage_keys == [result.thumbnail_storage_key]
     assert len(result.renditions) == 1
 
 

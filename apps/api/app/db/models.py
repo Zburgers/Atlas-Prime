@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
@@ -114,6 +114,7 @@ class Video(Base):
     saves: Mapped[list[VideoSave]] = relationship(back_populates="video", cascade="all, delete-orphan")
     comments: Mapped[list[VideoComment]] = relationship(back_populates="video", cascade="all, delete-orphan")
     recommendation_results: Mapped[list[RecommendationResult]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    thumbnails: Mapped[list[VideoThumbnail]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
 
 class VideoRendition(Base):
@@ -224,6 +225,36 @@ class VideoView(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="views")
+
+
+class VideoThumbnail(Base):
+    __tablename__ = "video_thumbnails"
+    __table_args__ = (
+        CheckConstraint("source in ('generated', 'custom')", name="ck_video_thumbnails_source"),
+        CheckConstraint("width > 0", name="ck_video_thumbnails_width_positive"),
+        CheckConstraint("height > 0", name="ck_video_thumbnails_height_positive"),
+        UniqueConstraint("video_id", "storage_key", name="uq_video_thumbnails_video_storage_key"),
+        Index("ix_video_thumbnails_video_created_at", "video_id", "created_at"),
+        Index(
+            "uq_video_thumbnails_selected_per_video",
+            "video_id",
+            unique=True,
+            postgresql_where=text("selected"),
+            sqlite_where=text("selected"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    width: Mapped[int] = mapped_column(nullable=False)
+    height: Mapped[int] = mapped_column(nullable=False)
+    selected: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="thumbnails")
 
 
 class RecommendationRequest(Base):

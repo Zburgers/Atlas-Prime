@@ -309,6 +309,9 @@ export function StudioVideoManager() {
                     <Link className="buttonLink secondaryButton" href={`/watch/${video.id}`}>
                       Watch
                     </Link>
+                    <Link className="buttonLink secondaryButton" href={`/studio/videos/${video.id}`}>
+                      Thumbnails
+                    </Link>
                   </div>
                 </form>
               );

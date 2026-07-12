@@ -82,10 +82,15 @@ class MediaRepository:
         job_id: str,
         master_key: str,
         thumbnail_key: str,
+        generated_thumbnail_keys: list[str],
         renditions: list[PackagedRendition],
     ) -> None:
         with self._connect() as conn:
             with conn.transaction():
+                custom_thumbnail_exists = conn.execute(
+                    "select exists(select 1 from video_thumbnails where video_id = %s and source = 'custom' and selected)",
+                    (video_id,),
+                ).fetchone()[0]
                 conn.execute("delete from video_renditions where video_id = %s", (video_id,))
                 for rendition in renditions:
                     conn.execute(
@@ -105,18 +110,28 @@ class MediaRepository:
                             rendition.playlist_storage_key,
                         ),
                     )
+                conn.execute("delete from video_thumbnails where video_id = %s and source = 'generated'", (video_id,))
+                for index, storage_key in enumerate(generated_thumbnail_keys):
+                    conn.execute(
+                        """
+                        insert into video_thumbnails
+                            (id, video_id, storage_key, source, content_type, width, height, selected, created_at)
+                        values (%s, %s, %s, 'generated', 'image/jpeg', 640, 360, %s, now())
+                        """,
+                        (str(uuid4()), video_id, storage_key, index == 0 and not custom_thumbnail_exists),
+                    )
                 conn.execute(
                     """
                     update videos
                     set status = 'ready',
                         hls_master_storage_key = %s,
-                        thumbnail_storage_key = %s,
+                        thumbnail_storage_key = coalesce(%s, thumbnail_storage_key),
                         failure_code = null,
                         failure_message = null,
                         updated_at = now()
                     where id = %s
                     """,
-                    (master_key, thumbnail_key, video_id),
+                    (master_key, thumbnail_key if not custom_thumbnail_exists else None, video_id),
                 )
                 conn.execute(
                     """

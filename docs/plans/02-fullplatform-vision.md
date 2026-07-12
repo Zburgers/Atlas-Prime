@@ -1530,6 +1530,8 @@ Acceptance:
 
 ### Issue 10 - Thumbnail Manager
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/alembic/versions/<timestamp>_video_thumbnails.py`

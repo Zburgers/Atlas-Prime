@@ -61,7 +61,7 @@ def _thumbnail_url_for(video: object) -> str | None:
         return None
     if not getattr(video, "thumbnail_storage_key", None):
         return None
-    return f"/videos/{video.id}/hls/thumbnail.jpg"
+    return f"/videos/{video.id}/thumbnail"
 
 
 def video_list_item(video: object) -> VideoListItemResponse:
@@ -160,7 +160,7 @@ async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUse
         video_id=video.id,
         status=VideoStatus(video.status),
         master_playlist_url=f"/videos/{video.id}/hls/master.m3u8" if video.hls_master_storage_key else None,
-        thumbnail_url=f"/videos/{video.id}/hls/thumbnail.jpg" if video.thumbnail_storage_key else None,
+        thumbnail_url=f"/videos/{video.id}/thumbnail" if video.thumbnail_storage_key else None,
         renditions=list(video.renditions),
     )
 

@@ -54,6 +54,7 @@ class PackageResult:
     hls_root: Path
     master_storage_key: str
     thumbnail_storage_key: str
+    generated_thumbnail_storage_keys: list[str]
     renditions: list[PackagedRendition]
 
 
@@ -252,6 +253,7 @@ def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: Med
         hls_root=hls_root,
         master_storage_key=f"processed/{video_id}/hls/master.m3u8",
         thumbnail_storage_key=f"processed/{video_id}/hls/thumbnail.jpg",
+        generated_thumbnail_storage_keys=[f"processed/{video_id}/hls/thumbnail.jpg"],
         renditions=renditions,
     )
 

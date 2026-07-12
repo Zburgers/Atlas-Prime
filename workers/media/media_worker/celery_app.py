@@ -71,6 +71,7 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
                 job_id=job_id,
                 master_key=package_result.master_storage_key,
                 thumbnail_key=package_result.thumbnail_storage_key,
+                generated_thumbnail_keys=package_result.generated_thumbnail_storage_keys,
                 renditions=package_result.renditions,
             )
             return {
