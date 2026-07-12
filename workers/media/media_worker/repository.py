@@ -88,9 +88,9 @@ class MediaRepository:
         with self._connect() as conn:
             with conn.transaction():
                 custom_thumbnail_exists = conn.execute(
-                    "select exists(select 1 from video_thumbnails where video_id = %s and source = 'custom' and selected)",
+                    "select exists(select 1 from video_thumbnails where video_id = %s and source = 'custom' and selected) as custom_thumbnail_exists",
                     (video_id,),
-                ).fetchone()[0]
+                ).fetchone()["custom_thumbnail_exists"]
                 conn.execute("delete from video_renditions where video_id = %s", (video_id,))
                 for rendition in renditions:
                     conn.execute(
