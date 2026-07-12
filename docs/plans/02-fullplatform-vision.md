@@ -1407,14 +1407,20 @@ Acceptance:
 
 ### Issue 6 - Creator Studio Video Manager
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/app/api/studio.py`
 - Create: `apps/api/app/services/studio.py`
 - Create: `apps/api/app/schemas/studio.py`
 - Modify: `apps/api/app/main.py`
+- Modify: `apps/web/app/components/app-header.tsx`
+- Modify: `apps/web/app/components/video-api.ts`
 - Create: `apps/web/app/studio/page.tsx`
 - Create: `apps/web/app/studio/videos/page.tsx`
+- Create: `apps/web/app/studio/videos/studio-video-manager.tsx`
+- Modify: `apps/web/app/globals.css`
 - Test: `apps/api/tests/test_studio.py`
 
 Steps:
@@ -1628,26 +1634,26 @@ Documentation rules:
 
 ## 18. Immediate Recommended Next Step
 
-Start with Phase 1, Issue 6:
+Start with Phase 1, Issue 7:
 
 ```txt
-Creator Studio Video Manager
+Comments V1
 ```
 
 Reason:
 
-- Public browse, channel pages, search, views, impressions, likes, and watch-later saves are now in place.
-- Creator Studio is the next owner-facing surface needed to manage videos, privacy, metadata, and failed processing states as the platform grows.
-- It can reuse existing owner-only video access and processing-status contracts without new infrastructure.
+- Public browse, channel pages, search, views, impressions, likes, watch-later saves, and Creator Studio video management are now in place.
+- Comments are the next viewer-facing interaction layer needed on top of the watch page.
+- Comments can reuse existing video access rules before feed ranking and moderation deepen the platform.
 - It does not require new infrastructure.
 
-After Issue 6, do:
+After Issue 7, do:
 
 ```txt
-7. Comments V1
-8. Subscriptions
-9. Feed V1 Ranking
+8. Feed V1 Ranking
+9. Recommendation Event Foundation
 10. Thumbnail Manager
+11. Admin Reports And Moderation
 ```
 
 This order keeps the platform demoable after every increment.

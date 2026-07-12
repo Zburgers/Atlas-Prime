@@ -64,6 +64,8 @@ export type VideoListResponse = {
   page_size: number;
 };
 
+export type StudioVideoListResponse = VideoListResponse;
+
 export type SearchResponse = {
   query: string;
   items: VideoListItem[];

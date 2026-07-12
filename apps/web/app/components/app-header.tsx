@@ -12,6 +12,7 @@ export function AppHeader() {
       <nav aria-label="Primary navigation">
         <Link href="/">Home</Link>
         <Link href="/search">Search</Link>
+        <Link href="/studio">Studio</Link>
         <Link href="/upload">Upload</Link>
         <Link href="/admin">Admin</Link>
       </nav>
