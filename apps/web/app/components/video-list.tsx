@@ -8,9 +8,10 @@ import {
   ApiError,
   apiRequest,
   backendAssetUrl,
+  type FeedItem,
+  type FeedResponse,
   type VideoImpression,
   type VideoListItem,
-  type VideoListResponse,
 } from "./video-api";
 import { formatDate, StatusPill } from "./status-ui";
 
@@ -19,8 +20,9 @@ type ImpressionTokenProvider = () => Promise<string | null>;
 export function VideoList() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [requestId] = useState(() => createRequestId("home"));
-  const [videos, setVideos] = useState<VideoListItem[]>([]);
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [algorithmVersion, setAlgorithmVersion] = useState("home-v1");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,15 +35,16 @@ export function VideoList() {
     setError(null);
     try {
       const token = isSignedIn ? await getToken() : null;
-      const response = await apiRequest<VideoListResponse>("/videos", { token });
-      setVideos(response.items);
+      const response = await apiRequest<FeedResponse>(`/feed/home?request_id=${encodeURIComponent(requestId)}`, { token });
+      setFeedItems(response.items);
       setTotal(response.total);
+      setAlgorithmVersion(response.algorithm_version);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load videos.");
     } finally {
       setLoading(false);
     }
-  }, [getToken, isSignedIn]);
+  }, [getToken, isSignedIn, requestId]);
 
   useEffect(() => {
     if (isLoaded) {
@@ -54,8 +57,8 @@ export function VideoList() {
       <div className="sectionHeader">
         <div>
           <p className="eyebrow">Home</p>
-          <h1 id="library-heading">Browse videos</h1>
-          <p className="muted">Watch ready public videos, or sign in to manage private drafts and uploads.</p>
+          <h1 id="library-heading">Home feed</h1>
+          <p className="muted">Ranked public videos using {algorithmVersion}.</p>
         </div>
         <Link className="buttonLink" href="/upload">
           Upload video
@@ -82,17 +85,19 @@ export function VideoList() {
 
       {loading ? <VideoListSkeleton /> : null}
       {error ? <p className="errorText">{error}</p> : null}
-      {!loading && !error && videos.length === 0 ? <EmptyLibrary /> : null}
-      {!loading && !error && videos.length > 0 ? (
+      {!loading && !error && feedItems.length === 0 ? <EmptyLibrary /> : null}
+      {!loading && !error && feedItems.length > 0 ? (
         <div className="videoGrid" role="list">
-          {videos.map((video, index) => (
+          {feedItems.map((item) => (
             <VideoCard
-              key={video.id}
-              video={video}
-              surface="home"
-              position={index}
-              requestId={requestId}
+              key={item.video.id}
+              video={item.video}
+              surface={item.surface}
+              position={item.rank - 1}
+              requestId={item.request_id}
               getToken={getImpressionToken}
+              feedRank={item.rank}
+              feedReason={item.reason}
             />
           ))}
         </div>
@@ -107,12 +112,16 @@ export function VideoCard({
   position,
   requestId,
   getToken,
+  feedRank,
+  feedReason,
 }: {
   video: VideoListItem;
   surface?: string;
   position?: number;
   requestId?: string;
   getToken?: ImpressionTokenProvider;
+  feedRank?: number;
+  feedReason?: string;
 }) {
   const cardRef = useRef<HTMLElement | null>(null);
   const impressionRecordedRef = useRef(false);
@@ -192,6 +201,7 @@ export function VideoCard({
           )}
           <p>{video.description || "No description provided."}</p>
           <p className="metaLine">{videoMeta(video)}</p>
+          {feedRank ? <p className="metaLine">Rank #{feedRank} / {feedReason}</p> : null}
         </div>
         <div className="cardActions">
           <StatusPill status={video.status} />

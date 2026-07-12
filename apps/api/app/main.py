@@ -10,6 +10,7 @@ from redis.asyncio import from_url as redis_from_url
 from app.api.admin import router as admin_router
 from app.api.channels import router as channels_router
 from app.api.comments import router as comments_router
+from app.api.feed import router as feed_router
 from app.api.search import router as search_router
 from app.api.studio import router as studio_router
 from app.api.videos import router as videos_router
@@ -22,6 +23,7 @@ app.include_router(comments_router)
 app.include_router(videos_router)
 app.include_router(channels_router)
 app.include_router(search_router)
+app.include_router(feed_router)
 app.include_router(studio_router)
 app.include_router(admin_router)
 

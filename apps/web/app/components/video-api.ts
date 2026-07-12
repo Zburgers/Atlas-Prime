@@ -74,6 +74,25 @@ export type SearchResponse = {
   page_size: number;
 };
 
+export type FeedItem = {
+  request_id: string;
+  surface: string;
+  rank: number;
+  score: number;
+  reason: string;
+  video: VideoListItem;
+};
+
+export type FeedResponse = {
+  request_id: string;
+  surface: string;
+  algorithm_version: string;
+  items: FeedItem[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 export type Channel = {
   id: string;
   owner_user_id: string;

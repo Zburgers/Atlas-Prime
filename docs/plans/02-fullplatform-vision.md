@@ -1473,6 +1473,8 @@ Acceptance:
 
 ### Issue 8 - Feed V1 Ranking
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/app/domain/ranking.py`
@@ -1480,6 +1482,8 @@ Files:
 - Create: `apps/api/app/services/feed.py`
 - Create: `apps/api/app/schemas/feed.py`
 - Modify: `apps/api/app/main.py`
+- Modify: `apps/web/app/components/video-api.ts`
+- Modify: `apps/web/app/components/video-list.tsx`
 - Modify: `apps/web/app/page.tsx`
 - Test: `apps/api/tests/test_feed.py`
 
@@ -1640,23 +1644,22 @@ Documentation rules:
 
 ## 18. Immediate Recommended Next Step
 
-Start with Phase 1, Issue 8:
+Start with Phase 1, Issue 9:
 
 ```txt
-Feed V1 Ranking
+Recommendation Event Foundation
 ```
 
 Reason:
 
-- Public browse, channel pages, search, views, impressions, likes, watch-later saves, Creator Studio, and comments are now in place.
-- Feed ranking is the next homepage/platform surface that turns discovery from a chronological listing into a deterministic product contract.
-- It can reuse existing public-ready filters, views, impressions, likes, and comment signals without new infrastructure.
+- Public browse, channel pages, search, views, impressions, likes, watch-later saves, Creator Studio, comments, and a deterministic home feed are now in place.
+- Recommendation event logging is the next durability layer needed to make ranked feed responses auditable.
+- It can persist the existing feed `request_id`, rank, and impression/playback join points.
 - It does not require new infrastructure.
 
-After Issue 8, do:
+After Issue 9, do:
 
 ```txt
-9. Recommendation Event Foundation
 10. Thumbnail Manager
 11. Admin Reports And Moderation
 12. Analytics Aggregates
