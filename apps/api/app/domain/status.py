@@ -20,6 +20,14 @@ class VideoPrivacy(StrEnum):
     UNLISTED = "unlisted"
 
 
+class ModerationStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    LIMITED = "limited"
+    REMOVED = "removed"
+    REJECTED = "rejected"
+
+
 class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -37,6 +45,7 @@ class RenditionStatus(StrEnum):
 
 CANONICAL_VIDEO_STATUS_VALUES = [status.value for status in VideoStatus]
 PRIVACY_VALUES = [privacy.value for privacy in VideoPrivacy]
+MODERATION_STATUS_VALUES = [status.value for status in ModerationStatus]
 
 ALLOWED_VIDEO_TRANSITIONS: dict[VideoStatus, set[VideoStatus]] = {
     VideoStatus.DRAFT: {VideoStatus.UPLOADING, VideoStatus.FAILED},

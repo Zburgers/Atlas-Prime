@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import User, Video, VideoProcessingJob
-from app.domain.status import JobStatus, VideoPrivacy, VideoStatus, validate_video_transition
+from app.domain.status import JobStatus, ModerationStatus, VideoPrivacy, VideoStatus, validate_video_transition
 from app.schemas.videos import ProcessingStatusResponse, VideoCreate, VideoUpdate
 from app.services.channels import ensure_default_channel
 
@@ -44,7 +44,11 @@ async def create_video(session: AsyncSession, owner: User, payload: VideoCreate)
 
 
 async def list_visible_videos(session: AsyncSession, user: User | None, page: int, page_size: int) -> tuple[list[Video], int]:
-    public_ready = (Video.status == VideoStatus.READY.value) & (Video.privacy == VideoPrivacy.PUBLIC.value)
+    public_ready = (
+        (Video.status == VideoStatus.READY.value)
+        & (Video.privacy == VideoPrivacy.PUBLIC.value)
+        & (Video.moderation_status == ModerationStatus.APPROVED.value)
+    )
     visible = public_ready if user is None else or_(Video.owner_id == user.id, public_ready)
     total = await session.scalar(select(func.count()).select_from(Video).where(visible))
     result = await session.execute(
@@ -61,6 +65,8 @@ async def list_visible_videos(session: AsyncSession, user: User | None, page: in
 async def get_video_for_read(session: AsyncSession, user: User | None, video_id: UUID) -> Video:
     video = await session.get(Video, video_id)
     if video is None:
+        raise _not_found()
+    if video.moderation_status == ModerationStatus.REMOVED.value:
         raise _not_found()
     if user is not None and video.owner_id == user.id:
         return video
@@ -147,6 +153,8 @@ async def video_with_renditions_for_playback(session: AsyncSession, user: User |
     )
     video = result.scalar_one_or_none()
     if video is None:
+        raise _not_found()
+    if video.moderation_status == ModerationStatus.REMOVED.value:
         raise _not_found()
     if video.status != VideoStatus.READY.value:
         raise _conflict("Video is not ready for playback", {"current_status": video.status})

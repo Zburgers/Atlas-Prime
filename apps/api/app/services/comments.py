@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import User, VideoComment
+from app.domain.status import ModerationStatus
 from app.schemas.comments import CommentCreate, CommentResponse
 from app.services import videos as video_service
 
@@ -35,11 +36,12 @@ async def list_comments(
     page_size: int,
 ) -> tuple[list[CommentResponse], int]:
     video = await video_service.get_video_for_read(session, user, video_id)
-    total = await session.scalar(select(func.count()).select_from(VideoComment).where(VideoComment.video_id == video.id))
+    visible = (VideoComment.video_id == video.id) & (VideoComment.moderation_status == ModerationStatus.APPROVED.value)
+    total = await session.scalar(select(func.count()).select_from(VideoComment).where(visible))
     result = await session.execute(
         select(VideoComment)
         .options(selectinload(VideoComment.user))
-        .where(VideoComment.video_id == video.id)
+        .where(visible)
         .order_by(VideoComment.created_at.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)

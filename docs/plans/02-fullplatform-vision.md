@@ -1559,6 +1559,8 @@ Acceptance:
 
 ### Issue 11 - Admin Reports And Moderation
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/alembic/versions/<timestamp>_moderation.py`

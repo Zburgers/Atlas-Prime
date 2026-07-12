@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Annotated
+import os
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,6 +106,23 @@ async def optional_current_user(session: SessionDep, identity: OptionalIdentityD
 
 CurrentUserDep = Annotated[object, Depends(current_user)]
 OptionalCurrentUserDep = Annotated[object | None, Depends(optional_current_user)]
+
+
+def _admin_clerk_user_ids() -> set[str]:
+    return {value.strip() for value in os.getenv("ATLAS_ADMIN_CLERK_USER_IDS", "").split(",") if value.strip()}
+
+
+async def current_admin_user(session: SessionDep, identity: IdentityDep):
+    user = await get_or_create_user(session, identity.clerk_user_id, identity.email)
+    if identity.clerk_user_id not in _admin_clerk_user_ids():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Forbidden", "message": "Administrator access is required"},
+        )
+    return user
+
+
+AdminUserDep = Annotated[object, Depends(current_admin_user)]
 
 
 def get_original_storage() -> OriginalStorage:

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Channel, Video
-from app.domain.status import VideoPrivacy, VideoStatus
+from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
 
 
 def normalize_search_query(query: str) -> str:
@@ -118,4 +118,8 @@ def _postgres_search_document() -> object:
 
 
 def _public_ready() -> object:
-    return (Video.status == VideoStatus.READY.value) & (Video.privacy == VideoPrivacy.PUBLIC.value)
+    return (
+        (Video.status == VideoStatus.READY.value)
+        & (Video.privacy == VideoPrivacy.PUBLIC.value)
+        & (Video.moderation_status == ModerationStatus.APPROVED.value)
+    )

@@ -218,6 +218,40 @@ export type AdminVideoDebug = {
   recent_playback_events: PlaybackEvent[];
 };
 
+export type ModerationTargetType = "video" | "comment";
+export type ModerationActionName = "remove" | "restore" | "limit";
+
+export type ContentReport = {
+  id: string;
+  reporter_user_id: string | null;
+  target_type: ModerationTargetType;
+  target_id: string;
+  reason: string;
+  details: string | null;
+  status: "open" | "actioned" | "dismissed";
+  created_at: string;
+};
+
+export type ContentReportListResponse = {
+  items: ContentReport[];
+  total: number;
+};
+
+export type ModerationAction = {
+  id: string;
+  actor_user_id: string | null;
+  target_type: ModerationTargetType;
+  target_id: string;
+  action: ModerationActionName;
+  reason: string | null;
+  created_at: string;
+};
+
+export type ModerationActionResult = {
+  report: ContentReport;
+  action: ModerationAction;
+};
+
 export type ProcessingStatus = {
   video_id: string;
   video_status: VideoStatus;

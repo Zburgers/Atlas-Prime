@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import PlaybackEvent, RecommendationRequest, RecommendationResult, User, Video, VideoImpression, VideoView
+from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
 
 
 @dataclass(frozen=True)
@@ -70,9 +71,24 @@ async def load_feed_results(
         )
     result = await session.execute(
         select(RecommendationResult)
+        .join(Video, Video.id == RecommendationResult.video_id)
         .options(selectinload(RecommendationResult.video).selectinload(Video.channel))
-        .where(RecommendationResult.recommendation_request_id == recommendation_request.id)
+        .where(
+            RecommendationResult.recommendation_request_id == recommendation_request.id,
+            Video.status == VideoStatus.READY.value,
+            Video.privacy == VideoPrivacy.PUBLIC.value,
+            Video.moderation_status == ModerationStatus.APPROVED.value,
+        )
         .order_by(RecommendationResult.rank)
+    )
+    total = await session.scalar(
+        select(func.count())
+        .select_from(Video)
+        .where(
+            Video.status == VideoStatus.READY.value,
+            Video.privacy == VideoPrivacy.PUBLIC.value,
+            Video.moderation_status == ModerationStatus.APPROVED.value,
+        )
     )
     return (
         [
@@ -84,7 +100,7 @@ async def load_feed_results(
             )
             for item in result.scalars()
         ],
-        recommendation_request.total_results,
+        int(total or 0),
     )
 
 

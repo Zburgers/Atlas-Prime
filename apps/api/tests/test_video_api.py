@@ -172,6 +172,7 @@ def _mark_video_ready(client: TestClient, *, video_id: str, privacy: VideoPrivac
 @pytest.fixture(autouse=True)
 def enable_dev_auth_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_ALLOW_DEV_AUTH_HEADERS", "true")
+    monkeypatch.setenv("ATLAS_ADMIN_CLERK_USER_IDS", "operator")
 
 
 def test_create_video_defaults_to_private_draft(client: TestClient) -> None:

@@ -95,6 +95,11 @@ export function AdminDashboard() {
         {error ? <p className="errorText">{error}</p> : null}
         {loading ? <p className="muted">Loading admin data...</p> : null}
         {ops ? <OpsPanel ops={ops} /> : null}
+        <div className="actionRow">
+          <Link className="secondaryLink" href="/admin/reports">
+            Review reports
+          </Link>
+        </div>
       </section>
 
       <div className="adminGrid">

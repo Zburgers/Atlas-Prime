@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUserDep, ProcessingQueueDep, SessionDep
+from app.api.deps import AdminUserDep, ProcessingQueueDep, SessionDep
 from app.db.models import PlaybackEvent, Video, VideoProcessingJob
 from app.domain.status import VideoStatus
 from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminVideoDebugResponse, VideoResponse
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.get("/ops", response_model=AdminOpsResponse)
-async def ops_status(_user: CurrentUserDep, processing_queue: ProcessingQueueDep) -> AdminOpsResponse:
+async def ops_status(_user: AdminUserDep, processing_queue: ProcessingQueueDep) -> AdminOpsResponse:
     worker = processing_queue.inspect_workers()
     queue = processing_queue.inspect_queue()
     status_value = "ok" if worker.ok and queue.ok else "degraded"
@@ -39,7 +39,7 @@ async def ops_status(_user: CurrentUserDep, processing_queue: ProcessingQueueDep
 @router.get("/videos", response_model=list[VideoResponse])
 async def list_admin_videos(
     session: SessionDep,
-    _user: CurrentUserDep,
+    _user: AdminUserDep,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[Video]:
     result = await session.execute(select(Video).order_by(Video.created_at.desc()).limit(limit))
@@ -49,7 +49,7 @@ async def list_admin_videos(
 @router.get("/jobs", response_model=list[AdminJobResponse])
 async def list_jobs(
     session: SessionDep,
-    _user: CurrentUserDep,
+    _user: AdminUserDep,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[AdminJobResponse]:
     result = await session.execute(
@@ -72,7 +72,7 @@ async def list_jobs(
 
 
 @router.get("/videos/{video_id}/debug", response_model=AdminVideoDebugResponse)
-async def video_debug(video_id: UUID, session: SessionDep, _user: CurrentUserDep) -> AdminVideoDebugResponse:
+async def video_debug(video_id: UUID, session: SessionDep, _user: AdminUserDep) -> AdminVideoDebugResponse:
     result = await session.execute(
         select(Video)
         .options(selectinload(Video.renditions), selectinload(Video.processing_jobs))

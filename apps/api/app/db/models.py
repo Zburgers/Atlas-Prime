@@ -4,13 +4,14 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, func, text
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
 from app.db.base import Base
 from app.domain.status import (
     CANONICAL_VIDEO_STATUS_VALUES,
+    MODERATION_STATUS_VALUES,
     PRIVACY_VALUES,
     JobStatus,
     RenditionStatus,
@@ -67,6 +68,7 @@ class Video(Base):
     __table_args__ = (
         CheckConstraint(f"privacy in {_values_sql(PRIVACY_VALUES)}", name="ck_videos_privacy"),
         CheckConstraint(f"status in {_values_sql(CANONICAL_VIDEO_STATUS_VALUES)}", name="ck_videos_status"),
+        CheckConstraint(f"moderation_status in {_values_sql(MODERATION_STATUS_VALUES)}", name="ck_videos_moderation_status"),
         CheckConstraint("duration_seconds is null or duration_seconds >= 0", name="ck_videos_duration_nonnegative"),
         CheckConstraint("width is null or width > 0", name="ck_videos_width_positive"),
         CheckConstraint("height is null or height > 0", name="ck_videos_height_positive"),
@@ -87,6 +89,7 @@ class Video(Base):
     description: Mapped[str | None] = mapped_column(Text)
     privacy: Mapped[str] = mapped_column(Text, nullable=False, default=VideoPrivacy.PRIVATE.value, server_default=VideoPrivacy.PRIVATE.value)
     status: Mapped[str] = mapped_column(Text, nullable=False, default=VideoStatus.DRAFT.value, server_default=VideoStatus.DRAFT.value)
+    moderation_status: Mapped[str] = mapped_column(Text, nullable=False, default="approved", server_default="approved")
     original_storage_key: Mapped[str | None] = mapped_column(Text)
     hls_master_storage_key: Mapped[str | None] = mapped_column(Text)
     thumbnail_storage_key: Mapped[str | None] = mapped_column(Text)
@@ -342,6 +345,7 @@ class VideoComment(Base):
     __tablename__ = "video_comments"
     __table_args__ = (
         CheckConstraint("length(body) >= 1", name="ck_video_comments_body_min_length"),
+        CheckConstraint(f"moderation_status in {_values_sql(MODERATION_STATUS_VALUES)}", name="ck_video_comments_moderation_status"),
         Index("ix_video_comments_video_created_at", "video_id", "created_at"),
         Index("ix_video_comments_user_created_at", "user_id", "created_at"),
     )
@@ -350,8 +354,61 @@ class VideoComment(Base):
     video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    moderation_status: Mapped[str] = mapped_column(Text, nullable=False, default="approved", server_default="approved")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     video: Mapped[Video] = relationship(back_populates="comments")
     user: Mapped[User | None] = relationship()
+
+
+class ContentReport(Base):
+    __tablename__ = "content_reports"
+    __table_args__ = (
+        CheckConstraint("target_type in ('video', 'comment')", name="ck_content_reports_target_type"),
+        CheckConstraint("status in ('open', 'actioned', 'dismissed')", name="ck_content_reports_status"),
+        Index("ix_content_reports_status_created_at", "status", "created_at"),
+        Index("ix_content_reports_target", "target_type", "target_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    reporter_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="open", server_default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ModerationAction(Base):
+    __tablename__ = "moderation_actions"
+    __table_args__ = (
+        CheckConstraint("target_type in ('video', 'comment')", name="ck_moderation_actions_target_type"),
+        CheckConstraint("action in ('remove', 'restore', 'limit')", name="ck_moderation_actions_action"),
+        Index("ix_moderation_actions_target_created_at", "target_type", "target_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AuditLogEntry(Base):
+    __tablename__ = "audit_log_entries"
+    __table_args__ = (
+        Index("ix_audit_log_entries_target_created_at", "target_type", "target_id", "created_at"),
+        Index("ix_audit_log_entries_actor_created_at", "actor_user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    metadata_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

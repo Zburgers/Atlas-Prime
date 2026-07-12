@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import User, Video
 from app.domain.ranking import HOME_FEED_ALGORITHM_VERSION, home_feed_reason, home_feed_score
-from app.domain.status import VideoPrivacy, VideoStatus
+from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
 from app.services import recommendation_logging
 
 HOME_SURFACE = "home"
@@ -36,7 +36,11 @@ async def home_feed(
     if existing is not None:
         ranked_videos, total = existing
         return resolved_request_id, ranked_videos, total
-    visible = (Video.status == VideoStatus.READY.value) & (Video.privacy == VideoPrivacy.PUBLIC.value)
+    visible = (
+        (Video.status == VideoStatus.READY.value)
+        & (Video.privacy == VideoPrivacy.PUBLIC.value)
+        & (Video.moderation_status == ModerationStatus.APPROVED.value)
+    )
     total = await session.scalar(select(func.count()).select_from(Video).where(visible))
     result = await session.execute(select(Video).options(selectinload(Video.channel)).where(visible))
     now = datetime.now(timezone.utc)

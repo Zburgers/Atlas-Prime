@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.db.base import Base
 from app.db.models import (
+    AuditLogEntry,
     Channel,
+    ContentReport,
+    ModerationAction,
     PlaybackEvent,
     RecommendationRequest,
     RecommendationResult,
