@@ -1440,14 +1440,20 @@ Acceptance:
 
 ### Issue 7 - Comments V1
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/alembic/versions/<timestamp>_comments.py`
+- Modify: `apps/api/alembic/env.py`
 - Modify: `apps/api/app/db/models.py`
 - Create: `apps/api/app/api/comments.py`
 - Create: `apps/api/app/services/comments.py`
+- Create: `apps/api/app/schemas/comments.py`
 - Modify: `apps/api/app/main.py`
+- Modify: `apps/web/app/components/video-api.ts`
 - Modify: `apps/web/app/watch/[videoId]/watch-client.tsx`
+- Modify: `apps/web/app/globals.css`
 - Test: `apps/api/tests/test_comments.py`
 
 Steps:
@@ -1634,26 +1640,26 @@ Documentation rules:
 
 ## 18. Immediate Recommended Next Step
 
-Start with Phase 1, Issue 7:
+Start with Phase 1, Issue 8:
 
 ```txt
-Comments V1
+Feed V1 Ranking
 ```
 
 Reason:
 
-- Public browse, channel pages, search, views, impressions, likes, watch-later saves, and Creator Studio video management are now in place.
-- Comments are the next viewer-facing interaction layer needed on top of the watch page.
-- Comments can reuse existing video access rules before feed ranking and moderation deepen the platform.
+- Public browse, channel pages, search, views, impressions, likes, watch-later saves, Creator Studio, and comments are now in place.
+- Feed ranking is the next homepage/platform surface that turns discovery from a chronological listing into a deterministic product contract.
+- It can reuse existing public-ready filters, views, impressions, likes, and comment signals without new infrastructure.
 - It does not require new infrastructure.
 
-After Issue 7, do:
+After Issue 8, do:
 
 ```txt
-8. Feed V1 Ranking
 9. Recommendation Event Foundation
 10. Thumbnail Manager
 11. Admin Reports And Moderation
+12. Analytics Aggregates
 ```
 
 This order keeps the platform demoable after every increment.

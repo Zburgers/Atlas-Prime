@@ -9,6 +9,7 @@ from redis.asyncio import from_url as redis_from_url
 
 from app.api.admin import router as admin_router
 from app.api.channels import router as channels_router
+from app.api.comments import router as comments_router
 from app.api.search import router as search_router
 from app.api.studio import router as studio_router
 from app.api.videos import router as videos_router
@@ -17,6 +18,7 @@ from app.domain.status import CANONICAL_VIDEO_STATUS_VALUES, PRIVACY_VALUES
 STATUS_VALUES = CANONICAL_VIDEO_STATUS_VALUES
 
 app = FastAPI(title="Atlas Prime API", version="0.0.1")
+app.include_router(comments_router)
 app.include_router(videos_router)
 app.include_router(channels_router)
 app.include_router(search_router)

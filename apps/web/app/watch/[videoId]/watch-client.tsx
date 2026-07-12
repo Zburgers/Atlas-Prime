@@ -3,12 +3,14 @@
 import { useAuth } from "@clerk/nextjs";
 import Hls from "hls.js";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { StatusPanel } from "../../components/status-ui";
 import {
   ApiError,
   apiRequest,
   backendAssetUrl,
+  type Comment,
+  type CommentListResponse,
   type PlaybackResponse,
   type ProcessingStatus,
   type Video,
@@ -26,11 +28,16 @@ export function WatchClient({ videoId }: { videoId: string }) {
   const viewRequestPendingRef = useRef(false);
   const [video, setVideo] = useState<Video | null>(null);
   const [engagement, setEngagement] = useState<VideoEngagementResponse | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentTotal, setCommentTotal] = useState(0);
+  const [commentBody, setCommentBody] = useState("");
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [engagementBusy, setEngagementBusy] = useState(false);
+  const [commentsBusy, setCommentsBusy] = useState(false);
   const [engagementError, setEngagementError] = useState<string | null>(null);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
 
@@ -118,17 +125,86 @@ export function WatchClient({ videoId }: { videoId: string }) {
     await updateEngagement(`/videos/${videoId}/watch-later`, method);
   }, [engagement?.saved_to_watch_later, updateEngagement, videoId]);
 
+  const applyComments = useCallback((result: CommentListResponse) => {
+    setComments(result.items);
+    setCommentTotal(result.total);
+  }, []);
+
+  const loadComments = useCallback(async () => {
+    setCommentsError(null);
+    try {
+      const token = isSignedIn ? await getToken() : null;
+      applyComments(await apiRequest<CommentListResponse>(`/videos/${videoId}/comments`, { token }));
+    } catch (err) {
+      setComments([]);
+      setCommentTotal(0);
+      setCommentsError(err instanceof ApiError ? err.message : "Unable to load comments.");
+    }
+  }, [applyComments, getToken, isSignedIn, videoId]);
+
+  const submitComment = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const body = commentBody.trim();
+      if (!body || !isSignedIn) {
+        return;
+      }
+      setCommentsBusy(true);
+      setCommentsError(null);
+      try {
+        const token = await getToken();
+        const created = await apiRequest<Comment>(`/videos/${videoId}/comments`, {
+          token,
+          method: "POST",
+          body: { body },
+        });
+        setComments((current) => [...current, created]);
+        setCommentTotal((current) => current + 1);
+        setCommentBody("");
+      } catch (err) {
+        setCommentsError(err instanceof ApiError ? err.message : "Unable to post comment.");
+      } finally {
+        setCommentsBusy(false);
+      }
+    },
+    [commentBody, getToken, isSignedIn, videoId],
+  );
+
+  const deleteComment = useCallback(
+    async (commentId: string) => {
+      if (!isSignedIn) {
+        return;
+      }
+      setCommentsBusy(true);
+      setCommentsError(null);
+      try {
+        const token = await getToken();
+        await apiRequest<void>(`/comments/${commentId}`, { token, method: "DELETE" });
+        setComments((current) => current.filter((comment) => comment.id !== commentId));
+        setCommentTotal((current) => Math.max(0, current - 1));
+      } catch (err) {
+        setCommentsError(err instanceof ApiError ? err.message : "Unable to delete comment.");
+      } finally {
+        setCommentsBusy(false);
+      }
+    },
+    [getToken, isSignedIn],
+  );
+
   const loadVideo = useCallback(async () => {
     setError(null);
     setEngagementError(null);
+    setCommentsError(null);
     try {
       const token = isSignedIn ? await getToken() : null;
-      const [videoResponse, statusResponse] = await Promise.all([
+      const [videoResponse, statusResponse, commentsResponse] = await Promise.all([
         apiRequest<Video>(`/videos/${videoId}`, { token }),
         apiRequest<ProcessingStatus>(`/videos/${videoId}/processing-status`, { token }),
+        apiRequest<CommentListResponse>(`/videos/${videoId}/comments`, { token }),
       ]);
       setVideo(videoResponse);
       setStatus(statusResponse);
+      applyComments(commentsResponse);
       if (statusResponse.video_status === "ready") {
         setPlayback(await apiRequest<PlaybackResponse>(`/videos/${videoId}/playback`, { token }));
       } else {
@@ -148,7 +224,7 @@ export function WatchClient({ videoId }: { videoId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [applyEngagement, getToken, isSignedIn, videoId]);
+  }, [applyComments, applyEngagement, getToken, isSignedIn, videoId]);
 
   useEffect(() => {
     if (isLoaded) {
@@ -236,6 +312,61 @@ export function WatchClient({ videoId }: { videoId: string }) {
           ) : null}
         </div>
         {playerError ? <p className="errorText">{playerError}</p> : null}
+
+        <section className="commentThread" aria-labelledby="comments-heading">
+          <div className="sectionHeader">
+            <div>
+              <p className="eyebrow">Comments</p>
+              <h2 id="comments-heading">{formatCount(commentTotal, "comment")}</h2>
+            </div>
+            <button className="secondaryButton" type="button" onClick={loadComments} disabled={commentsBusy || loading}>
+              Refresh
+            </button>
+          </div>
+
+          {isSignedIn ? (
+            <form className="commentForm" onSubmit={submitComment}>
+              <label>
+                <span>Comment</span>
+                <textarea
+                  maxLength={2000}
+                  value={commentBody}
+                  onChange={(event) => setCommentBody(event.target.value)}
+                  placeholder="Add a comment"
+                />
+              </label>
+              <button type="submit" disabled={commentsBusy || commentBody.trim().length === 0}>
+                Post comment
+              </button>
+            </form>
+          ) : (
+            <p className="muted">Sign in to comment.</p>
+          )}
+
+          {commentsError ? <p className="errorText">{commentsError}</p> : null}
+          {comments.length === 0 && !commentsError ? <p className="muted">No comments yet.</p> : null}
+          <div className="commentList">
+            {comments.map((comment) => (
+              <article className="commentItem" key={comment.id}>
+                <div>
+                  <p className="commentAuthor">{comment.author_display_name}</p>
+                  <p>{comment.body}</p>
+                  <p className="metaLine">{formatDate(comment.created_at)}</p>
+                </div>
+                {comment.owned_by_current_user ? (
+                  <button
+                    className="secondaryButton"
+                    type="button"
+                    onClick={() => void deleteComment(comment.id)}
+                    disabled={commentsBusy}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
       </section>
 
       <aside className="sideStack">
@@ -307,4 +438,13 @@ function formatViewCount(value: number) {
 
 function formatCount(value: number, label: string) {
   return `${value.toLocaleString()} ${label}${value === 1 ? "" : "s"}`;
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

@@ -417,6 +417,46 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.commentThread {
+  border-top: 1px solid var(--line);
+  margin-top: 22px;
+  padding-top: 22px;
+}
+
+.commentForm {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.commentForm textarea {
+  min-height: 92px;
+}
+
+.commentList {
+  border-top: 1px solid var(--line);
+  display: grid;
+}
+
+.commentItem {
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 16px 0;
+}
+
+.commentItem p {
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.commentAuthor {
+  color: var(--text);
+  font-weight: 800;
+}
+
 .videoRow,
 .adminListItem {
   align-items: center;
@@ -728,7 +768,8 @@ dd {
   .opsGrid,
   .videoGrid,
   .videoRow,
-  .adminListItem {
+  .adminListItem,
+  .commentItem {
     grid-template-columns: 1fr;
   }
 

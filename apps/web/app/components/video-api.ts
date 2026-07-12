@@ -145,6 +145,23 @@ export type VideoEngagementResponse = {
   saved_to_watch_later: boolean;
 };
 
+export type Comment = {
+  id: string;
+  video_id: string;
+  body: string;
+  author_display_name: string;
+  owned_by_current_user: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CommentListResponse = {
+  items: Comment[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 export type AdminOps = {
   status: "ok" | "degraded";
   api: Record<string, unknown>;

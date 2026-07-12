@@ -112,6 +112,7 @@ class Video(Base):
     views: Mapped[list[VideoView]] = relationship(back_populates="video", cascade="all, delete-orphan")
     reactions: Mapped[list[VideoReaction]] = relationship(back_populates="video", cascade="all, delete-orphan")
     saves: Mapped[list[VideoSave]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    comments: Mapped[list[VideoComment]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
 
 class VideoRendition(Base):
@@ -252,3 +253,22 @@ class VideoSave(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="saves")
+
+
+class VideoComment(Base):
+    __tablename__ = "video_comments"
+    __table_args__ = (
+        CheckConstraint("length(body) >= 1", name="ck_video_comments_body_min_length"),
+        Index("ix_video_comments_video_created_at", "video_id", "created_at"),
+        Index("ix_video_comments_user_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="comments")
+    user: Mapped[User | None] = relationship()

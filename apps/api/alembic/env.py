@@ -15,6 +15,7 @@ from app.db.models import (
     PlaybackEvent,
     User,
     Video,
+    VideoComment,
     VideoImpression,
     VideoProcessingJob,
     VideoReaction,
