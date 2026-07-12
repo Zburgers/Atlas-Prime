@@ -1671,6 +1671,7 @@ After Issue 9, do:
 10. Thumbnail Manager
 11. Admin Reports And Moderation
 12. Analytics Aggregates
+13. Captions V1
 ```
 
 This order keeps the platform demoable after every increment.
@@ -1730,4 +1731,25 @@ public surfaces
   -> media/delivery scale
   -> ML recommendations
   -> monetization/live/advanced platform
+```
+
+## 21. Delivered Rollout Slices
+
+### Issue 13 - Captions V1
+
+**Goal:** Let creators attach accessible, privacy-protected WebVTT captions to ready videos.
+
+**Delivered contract:**
+
+- A creator can upload a validated `.vtt` file, language tag, label, and optional default selection from Studio.
+- `video_text_tracks` keeps caption metadata separate from video lifecycle and HLS rendition state.
+- The API exposes only caption delivery URLs, never object storage keys; delivery runs through normal video access checks.
+- Playback metadata returns `text_tracks`, and the watch page renders native HTML caption tracks.
+- The first uploaded track becomes default automatically; selecting a different default clears the preceding default.
+
+**Validation:**
+
+```sh
+docker compose run --rm --build api pytest tests/test_captions.py -q
+npm --workspace apps/web run build
 ```

@@ -162,6 +162,10 @@ async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUse
         master_playlist_url=f"/videos/{video.id}/hls/master.m3u8" if video.hls_master_storage_key else None,
         thumbnail_url=f"/videos/{video.id}/thumbnail" if video.thumbnail_storage_key else None,
         renditions=list(video.renditions),
+        text_tracks=[
+            {"id": track.id, "language": track.language, "label": track.label, "kind": track.kind, "default": track.is_default, "url": f"/videos/{video.id}/captions/{track.id}", "created_at": track.created_at}
+            for track in sorted(video.text_tracks, key=lambda item: (not item.is_default, item.language))
+        ],
     )
 
 

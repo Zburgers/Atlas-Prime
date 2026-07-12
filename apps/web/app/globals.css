@@ -734,6 +734,16 @@ dd {
 .thumbnailCandidate { border: 1px solid var(--line); padding: 10px; }
 .thumbnailCandidate img { display: block; height: auto; width: 100%; }
 .thumbnailCandidate div { align-items: center; display: flex; justify-content: space-between; margin-top: 8px; }
+.captionForm { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(180px, 2fr) minmax(96px, 1fr) minmax(140px, 1fr) auto auto; }
+.captionForm label { display: grid; gap: 6px; }
+.captionDefault { align-items: center; display: flex !important; gap: 8px; min-height: 38px; }
+.captionList { border-top: 1px solid var(--line); display: grid; gap: 0; list-style: none; margin: 20px 0 0; padding: 0; }
+.captionList li { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 12px; justify-content: space-between; padding: 12px 0; }
+
+@media (max-width: 760px) {
+  .captionForm { align-items: stretch; grid-template-columns: 1fr; }
+  .captionDefault { min-height: auto; }
+}
 
 .authPanel {
   border-top: 1px solid var(--line);

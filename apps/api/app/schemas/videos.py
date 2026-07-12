@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.status import JobStatus, RenditionStatus, VideoPrivacy, VideoStatus
+from app.schemas.captions import TextTrackResponse
 
 
 class UserResponse(BaseModel):
@@ -191,6 +192,7 @@ class PlaybackResponse(BaseModel):
     master_playlist_url: str | None
     thumbnail_url: str | None
     renditions: list[RenditionResponse]
+    text_tracks: list[TextTrackResponse] = []
 
 
 class VideoUploadResponse(BaseModel):

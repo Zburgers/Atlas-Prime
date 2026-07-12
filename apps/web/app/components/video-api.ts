@@ -171,6 +171,18 @@ export type Thumbnail = {
 
 export type ThumbnailListResponse = { items: Thumbnail[] };
 
+export type TextTrack = {
+  id: string;
+  language: string;
+  label: string;
+  kind: "captions";
+  default: boolean;
+  url: string;
+  created_at: string;
+};
+
+export type TextTrackListResponse = { items: TextTrack[] };
+
 export type VideoEngagementResponse = {
   video_id: string;
   liked: boolean;
@@ -299,6 +311,7 @@ export type PlaybackResponse = {
     status: string;
     created_at: string;
   }>;
+  text_tracks: TextTrack[];
 };
 
 export type UploadResponse = {

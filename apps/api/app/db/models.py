@@ -118,6 +118,7 @@ class Video(Base):
     comments: Mapped[list[VideoComment]] = relationship(back_populates="video", cascade="all, delete-orphan")
     recommendation_results: Mapped[list[RecommendationResult]] = relationship(back_populates="video", cascade="all, delete-orphan")
     thumbnails: Mapped[list[VideoThumbnail]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    text_tracks: Mapped[list[VideoTextTrack]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
 
 class VideoRendition(Base):
@@ -298,6 +299,35 @@ class VideoThumbnail(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="thumbnails")
+
+
+class VideoTextTrack(Base):
+    __tablename__ = "video_text_tracks"
+    __table_args__ = (
+        CheckConstraint("kind in ('captions')", name="ck_video_text_tracks_kind"),
+        UniqueConstraint("video_id", "language", "kind", name="uq_video_text_tracks_video_language_kind"),
+        Index("ix_video_text_tracks_video_created_at", "video_id", "created_at"),
+        Index(
+            "uq_video_text_tracks_default_per_video",
+            "video_id",
+            unique=True,
+            postgresql_where=text("is_default"),
+            sqlite_where=text("is_default"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False, default="captions", server_default="captions")
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False, default="text/vtt", server_default="text/vtt")
+    is_default: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="text_tracks")
 
 
 class RecommendationRequest(Base):

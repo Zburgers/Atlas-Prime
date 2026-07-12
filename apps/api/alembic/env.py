@@ -29,6 +29,7 @@ from app.db.models import (
     VideoRendition,
     VideoSave,
     VideoThumbnail,
+    VideoTextTrack,
     VideoView,
 )
 

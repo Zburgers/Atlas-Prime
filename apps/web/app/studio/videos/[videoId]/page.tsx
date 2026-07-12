@@ -1,8 +1,14 @@
+import { CaptionManager } from "./caption-manager";
 import { ThumbnailManager } from "./thumbnail-manager";
 
-type ThumbnailPageProps = { params: Promise<{ videoId: string }> };
+type StudioVideoAssetsPageProps = { params: Promise<{ videoId: string }> };
 
-export default async function StudioThumbnailPage({ params }: ThumbnailPageProps) {
+export default async function StudioVideoAssetsPage({ params }: StudioVideoAssetsPageProps) {
   const { videoId } = await params;
-  return <ThumbnailManager videoId={videoId} />;
+  return (
+    <div className="studioStack">
+      <ThumbnailManager videoId={videoId} />
+      <CaptionManager videoId={videoId} />
+    </div>
+  );
 }

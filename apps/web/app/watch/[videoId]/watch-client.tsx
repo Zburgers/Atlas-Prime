@@ -304,7 +304,18 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
               onPause={() => void recordPlaybackEvent("pause")}
               onPlay={() => void recordPlaybackEvent("play")}
               onTimeUpdate={() => void recordView()}
-            />
+            >
+              {playback.text_tracks.map((track) => (
+                <track
+                  key={track.id}
+                  kind="captions"
+                  src={backendAssetUrl(track.url)}
+                  srcLang={track.language}
+                  label={track.label}
+                  default={track.default}
+                />
+              ))}
+            </video>
           ) : null}
           {!loading && !error && !playback?.master_playlist_url ? (
             <div className="playerPlaceholder">
