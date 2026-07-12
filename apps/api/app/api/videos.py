@@ -39,6 +39,7 @@ from app.services import analytics as analytics_service
 from app.services import reactions as reactions_service
 from app.services import uploads as upload_service
 from app.services import videos as video_service
+from app.services import subscriptions as subscription_service
 from app.services.storage import HlsObjectNotFoundError
 
 router = APIRouter()
@@ -219,6 +220,8 @@ async def record_playback_event(
         request_id=payload.request_id,
     )
     session.add(event)
+    if payload.event_type == "play":
+        await subscription_service.record_history(session, user, video, payload.position_seconds)
     await session.commit()
     await session.refresh(event)
     if payload.event_type in {"error", "unsupported"}:

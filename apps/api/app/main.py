@@ -12,6 +12,7 @@ from app.api.channels import router as channels_router
 from app.api.captions import router as captions_router
 from app.api.comments import router as comments_router
 from app.api.feed import router as feed_router
+from app.api.library import router as library_router
 from app.api.moderation import router as moderation_router
 from app.api.search import router as search_router
 from app.api.studio import router as studio_router
@@ -30,6 +31,7 @@ app.include_router(videos_router)
 app.include_router(channels_router)
 app.include_router(search_router)
 app.include_router(feed_router)
+app.include_router(library_router)
 app.include_router(moderation_router)
 app.include_router(studio_router)
 app.include_router(studio_analytics_router)

@@ -13,6 +13,7 @@ from app.db.base import Base
 from app.db.models import (
     AuditLogEntry,
     Channel,
+    ChannelSubscription,
     ContentReport,
     CreatorDailyMetric,
     ModerationAction,
@@ -31,6 +32,7 @@ from app.db.models import (
     VideoThumbnail,
     VideoTextTrack,
     VideoView,
+    WatchHistory,
 )
 
 config = context.config

@@ -7,9 +7,10 @@ from fastapi import APIRouter, Query
 from app.api.deps import CurrentUserDep, OptionalCurrentUserDep, SessionDep
 from app.domain.status import VideoStatus
 from app.schemas.feed import FeedItemResponse, FeedResponse, RecommendationDebugResponse
-from app.schemas.videos import VideoListItemResponse
+from app.schemas.videos import VideoListItemResponse, VideoListResponse
 from app.services import feed as feed_service
 from app.services import recommendation_logging
+from app.services import subscriptions as subscription_service
 
 router = APIRouter(prefix="/feed", tags=["feed"])
 
@@ -52,21 +53,17 @@ async def home_feed(
         request_id=resolved_request_id,
         surface=feed_service.HOME_SURFACE,
         algorithm_version=feed_service.home_algorithm_version(),
-        items=[
-            FeedItemResponse(
-                request_id=resolved_request_id,
-                surface=feed_service.HOME_SURFACE,
-                rank=item.rank,
-                score=item.score,
-                reason=item.reason,
-                video=_video_list_item(item.video),
-            )
-            for item in ranked_videos
-        ],
+        items=[FeedItemResponse(request_id=resolved_request_id, surface=feed_service.HOME_SURFACE, rank=item.rank, score=item.score, reason=item.reason, video=_video_list_item(item.video)) for item in ranked_videos],
         total=total,
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/subscriptions", response_model=VideoListResponse)
+async def subscriptions_feed(session: SessionDep, user: CurrentUserDep) -> VideoListResponse:
+    items = [_video_list_item(video) for video in await subscription_service.subscription_feed(session, user)]
+    return VideoListResponse(items=items, total=len(items), page=1, page_size=len(items))
 
 
 @router.get("/requests/{request_id}/debug", response_model=RecommendationDebugResponse)

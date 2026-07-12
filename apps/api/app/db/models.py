@@ -61,6 +61,7 @@ class Channel(Base):
 
     owner: Mapped[User] = relationship(back_populates="channel")
     videos: Mapped[list[Video]] = relationship(back_populates="channel")
+    subscriptions: Mapped[list[ChannelSubscription]] = relationship(back_populates="channel", cascade="all, delete-orphan")
 
 
 class Video(Base):
@@ -409,6 +410,29 @@ class VideoSave(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="saves")
+
+
+class ChannelSubscription(Base):
+    __tablename__ = "channel_subscriptions"
+    __table_args__ = (UniqueConstraint("user_id", "channel_id", name="uq_channel_subscriptions_user_channel"), Index("ix_channel_subscriptions_user_created_at", "user_id", "created_at"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    channel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    channel: Mapped[Channel] = relationship(back_populates="subscriptions")
+
+
+class WatchHistory(Base):
+    __tablename__ = "watch_history"
+    __table_args__ = (UniqueConstraint("user_id", "video_id", name="uq_watch_history_user_video"), Index("ix_watch_history_user_watched_at", "user_id", "watched_at"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    position_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
+    watched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    video: Mapped[Video] = relationship()
 
 
 class VideoComment(Base):

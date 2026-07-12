@@ -64,6 +64,15 @@ export type VideoListResponse = {
   page_size: number;
 };
 
+export type WatchHistoryItem = {
+  id: string;
+  position_seconds: number | null;
+  watched_at: string;
+  video: VideoListItem;
+};
+
+export type WatchHistoryResponse = { items: WatchHistoryItem[] };
+
 export type StudioVideoListResponse = VideoListResponse;
 
 export type SearchResponse = {
