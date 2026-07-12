@@ -137,6 +137,7 @@ export type PlaybackEvent = {
   position_seconds: string | null;
   quality_label: string | null;
   client_timestamp: string | null;
+  request_id: string | null;
   created_at: string;
 };
 

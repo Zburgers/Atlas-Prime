@@ -60,7 +60,7 @@ The generated fixture is `fixtures/media/sample-2s.mp4` and is ignored by git.
 
 - Compose config is valid.
 - Full stack builds and starts with local smoke-only dev auth headers enabled.
-- Alembic migrations apply cleanly.
+- The API applies Alembic migrations before it starts serving traffic; `make db-upgrade` remains available for an explicit migration run.
 - API `/healthz` can reach PostgreSQL, Redis, and private MinIO buckets.
 - Web responds on port 3000.
 - API MVP contract metadata keeps `private` as the default privacy and documents API-mediated upload plus API-proxied HLS.

@@ -35,6 +35,7 @@ class PlaybackEventCreate(BaseModel):
     position_seconds: Decimal | None = Field(default=None, ge=0)
     quality_label: str | None = Field(default=None, max_length=40)
     client_timestamp: datetime | None = None
+    request_id: str | None = Field(default=None, max_length=120)
 
 
 class PlaybackEventResponse(BaseModel):
@@ -47,6 +48,7 @@ class PlaybackEventResponse(BaseModel):
     position_seconds: Decimal | None
     quality_label: str | None
     client_timestamp: datetime | None
+    request_id: str | None
     created_at: datetime
 
 
@@ -71,6 +73,7 @@ class VideoImpressionResponse(BaseModel):
 class VideoViewCreate(BaseModel):
     session_id: str = Field(min_length=3, max_length=120)
     position_seconds: Decimal = Field(ge=0)
+    request_id: str | None = Field(default=None, max_length=120)
 
 
 class VideoViewResponse(BaseModel):

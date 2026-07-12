@@ -1504,6 +1504,8 @@ Acceptance:
 
 ### Issue 9 - Recommendation Event Foundation
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/alembic/versions/<timestamp>_recommendation_logging.py`

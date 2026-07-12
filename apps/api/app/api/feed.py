@@ -4,11 +4,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import SessionDep
+from app.api.deps import CurrentUserDep, OptionalCurrentUserDep, SessionDep
 from app.domain.status import VideoStatus
-from app.schemas.feed import FeedItemResponse, FeedResponse
+from app.schemas.feed import FeedItemResponse, FeedResponse, RecommendationDebugResponse
 from app.schemas.videos import VideoListItemResponse
 from app.services import feed as feed_service
+from app.services import recommendation_logging
 
 router = APIRouter(prefix="/feed", tags=["feed"])
 
@@ -35,12 +36,14 @@ def _video_list_item(video: object) -> VideoListItemResponse:
 @router.get("/home", response_model=FeedResponse)
 async def home_feed(
     session: SessionDep,
+    user: OptionalCurrentUserDep,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     request_id: Annotated[str | None, Query(max_length=120)] = None,
 ) -> FeedResponse:
     resolved_request_id, ranked_videos, total = await feed_service.home_feed(
         session,
+        user=user,
         page=page,
         page_size=page_size,
         request_id=request_id,
@@ -64,3 +67,12 @@ async def home_feed(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/requests/{request_id}/debug", response_model=RecommendationDebugResponse)
+async def feed_request_debug(
+    request_id: str,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> RecommendationDebugResponse:
+    return await recommendation_logging.recommendation_debug(session, request_id=request_id, user=user)

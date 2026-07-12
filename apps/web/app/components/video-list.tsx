@@ -126,6 +126,7 @@ export function VideoCard({
   const cardRef = useRef<HTMLElement | null>(null);
   const impressionRecordedRef = useRef(false);
   const channelLabel = video.channel_display_name ?? "Channel pending";
+  const watchHref = requestId ? `/watch/${video.id}?request_id=${encodeURIComponent(requestId)}` : `/watch/${video.id}`;
 
   useEffect(() => {
     impressionRecordedRef.current = false;
@@ -173,7 +174,7 @@ export function VideoCard({
 
   return (
     <article className="videoCard" role="listitem" ref={cardRef}>
-      <Link className="thumbnailFrame" href={`/watch/${video.id}`} aria-label={`Open ${video.title}`}>
+      <Link className="thumbnailFrame" href={watchHref} aria-label={`Open ${video.title}`}>
         {video.thumbnail_url ? (
           <Image
             alt=""
@@ -205,7 +206,7 @@ export function VideoCard({
         </div>
         <div className="cardActions">
           <StatusPill status={video.status} />
-          <Link className="secondaryLink" href={`/watch/${video.id}`}>
+          <Link className="secondaryLink" href={watchHref}>
             Open
           </Link>
         </div>

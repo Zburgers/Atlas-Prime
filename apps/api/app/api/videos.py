@@ -212,6 +212,7 @@ async def record_playback_event(
         position_seconds=payload.position_seconds,
         quality_label=payload.quality_label,
         client_timestamp=payload.client_timestamp,
+        request_id=payload.request_id,
     )
     session.add(event)
     await session.commit()

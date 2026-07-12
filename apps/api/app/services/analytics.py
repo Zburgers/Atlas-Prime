@@ -69,6 +69,7 @@ async def record_view(
         video_id=video.id,
         session_id=payload.session_id,
         position_seconds=payload.position_seconds,
+        request_id=payload.request_id,
     )
     video.view_count += 1
     session.add(view)

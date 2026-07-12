@@ -113,6 +113,7 @@ class Video(Base):
     reactions: Mapped[list[VideoReaction]] = relationship(back_populates="video", cascade="all, delete-orphan")
     saves: Mapped[list[VideoSave]] = relationship(back_populates="video", cascade="all, delete-orphan")
     comments: Mapped[list[VideoComment]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    recommendation_results: Mapped[list[RecommendationResult]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
 
 class VideoRendition(Base):
@@ -171,6 +172,7 @@ class PlaybackEvent(Base):
         CheckConstraint("position_seconds is null or position_seconds >= 0", name="ck_playback_events_position_nonnegative"),
         Index("ix_playback_events_video_created_at", "video_id", "created_at"),
         Index("ix_playback_events_user_created_at", "user_id", "created_at"),
+        Index("ix_playback_events_request_id", "request_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -180,6 +182,7 @@ class PlaybackEvent(Base):
     position_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     quality_label: Mapped[str | None] = mapped_column(Text)
     client_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    request_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -209,6 +212,7 @@ class VideoView(Base):
         UniqueConstraint("video_id", "session_id", name="uq_video_views_video_session"),
         Index("ix_video_views_video_created_at", "video_id", "created_at"),
         Index("ix_video_views_user_created_at", "user_id", "created_at"),
+        Index("ix_video_views_request_id", "request_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -216,9 +220,57 @@ class VideoView(Base):
     video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
     session_id: Mapped[str] = mapped_column(Text, nullable=False)
     position_seconds: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="views")
+
+
+class RecommendationRequest(Base):
+    __tablename__ = "recommendation_requests"
+    __table_args__ = (
+        CheckConstraint("page >= 1", name="ck_recommendation_requests_page_positive"),
+        CheckConstraint("page_size >= 1", name="ck_recommendation_requests_page_size_positive"),
+        CheckConstraint("total_results >= 0", name="ck_recommendation_requests_total_results_nonnegative"),
+        UniqueConstraint("request_id", name="uq_recommendation_requests_request_id"),
+        Index("ix_recommendation_requests_user_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    surface: Mapped[str] = mapped_column(Text, nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(Text, nullable=False)
+    page: Mapped[int] = mapped_column(nullable=False)
+    page_size: Mapped[int] = mapped_column(nullable=False)
+    total_results: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    results: Mapped[list[RecommendationResult]] = relationship(back_populates="recommendation_request", cascade="all, delete-orphan")
+
+
+class RecommendationResult(Base):
+    __tablename__ = "recommendation_results"
+    __table_args__ = (
+        CheckConstraint("rank >= 1", name="ck_recommendation_results_rank_positive"),
+        UniqueConstraint("recommendation_request_id", "rank", name="uq_recommendation_results_request_rank"),
+        UniqueConstraint("recommendation_request_id", "video_id", name="uq_recommendation_results_request_video"),
+        Index("ix_recommendation_results_request_rank", "recommendation_request_id", "rank"),
+        Index("ix_recommendation_results_video_id", "video_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recommendation_request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("recommendation_requests.id", ondelete="CASCADE"), nullable=False
+    )
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    rank: Mapped[int] = mapped_column(nullable=False)
+    score: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    recommendation_request: Mapped[RecommendationRequest] = relationship(back_populates="results")
+    video: Mapped[Video] = relationship(back_populates="recommendation_results")
 
 
 class VideoReaction(Base):

@@ -13,6 +13,8 @@ from app.db.base import Base
 from app.db.models import (
     Channel,
     PlaybackEvent,
+    RecommendationRequest,
+    RecommendationResult,
     User,
     Video,
     VideoComment,

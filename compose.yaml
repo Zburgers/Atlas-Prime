@@ -119,6 +119,8 @@ services:
       MINIO_BUCKET_PROCESSED: ${MINIO_BUCKET_PROCESSED:-atlas-processed}
       ATLAS_FFMPEG_TIMEOUT_SECONDS: ${ATLAS_FFMPEG_TIMEOUT_SECONDS:-120}
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:

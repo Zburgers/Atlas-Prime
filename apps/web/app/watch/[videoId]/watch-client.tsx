@@ -20,7 +20,7 @@ import {
 
 const VIEW_COUNT_THRESHOLD_SECONDS = 5;
 
-export function WatchClient({ videoId }: { videoId: string }) {
+export function WatchClient({ videoId, recommendationRequestId }: { videoId: string; recommendationRequestId?: string }) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const viewSessionIdRef = useRef(createPlaybackSessionId());
@@ -53,13 +53,14 @@ export function WatchClient({ videoId }: { videoId: string }) {
             position_seconds: videoRef.current?.currentTime ?? null,
             quality_label,
             client_timestamp: new Date().toISOString(),
+            request_id: recommendationRequestId ?? null,
           },
         });
       } catch {
         // Playback telemetry should never interrupt viewing.
       }
     },
-    [getToken, isSignedIn, videoId],
+    [getToken, isSignedIn, recommendationRequestId, videoId],
   );
 
   const recordView = useCallback(async () => {
@@ -80,6 +81,7 @@ export function WatchClient({ videoId }: { videoId: string }) {
         body: {
           session_id: viewSessionIdRef.current,
           position_seconds: Number(element.currentTime.toFixed(3)),
+          request_id: recommendationRequestId ?? null,
         },
       });
       viewRecordedRef.current = true;
@@ -89,7 +91,7 @@ export function WatchClient({ videoId }: { videoId: string }) {
     } finally {
       viewRequestPendingRef.current = false;
     }
-  }, [getToken, isSignedIn, videoId]);
+  }, [getToken, isSignedIn, recommendationRequestId, videoId]);
 
   const applyEngagement = useCallback((result: VideoEngagementResponse) => {
     setEngagement(result);
