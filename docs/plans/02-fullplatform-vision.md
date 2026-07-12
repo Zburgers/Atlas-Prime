@@ -1588,6 +1588,8 @@ Acceptance:
 
 ### Issue 12 - Analytics Aggregates
 
+Status: implemented on branch `docs/fullplatform-rollout`; keep this issue's acceptance checks as regression criteria.
+
 Files:
 
 - Create: `apps/api/alembic/versions/<timestamp>_daily_metrics.py`

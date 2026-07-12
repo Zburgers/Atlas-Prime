@@ -252,6 +252,29 @@ export type ModerationActionResult = {
   action: ModerationAction;
 };
 
+export type AnalyticsTotals = {
+  impressions: number;
+  views: number;
+  watch_time_seconds: string;
+};
+
+export type AnalyticsDailyPoint = AnalyticsTotals & {
+  date: string;
+};
+
+export type AnalyticsTopVideo = AnalyticsTotals & {
+  video_id: string;
+  title: string;
+};
+
+export type StudioAnalytics = {
+  date_from: string;
+  date_to: string;
+  totals: AnalyticsTotals;
+  daily: AnalyticsDailyPoint[];
+  top_videos: AnalyticsTopVideo[];
+};
+
 export type ProcessingStatus = {
   video_id: string;
   video_status: VideoStatus;

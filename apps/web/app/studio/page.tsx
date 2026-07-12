@@ -11,6 +11,9 @@ export default function StudioPage() {
           <Link className="buttonLink" href="/studio/videos">
             Open videos
           </Link>
+          <Link className="buttonLink secondaryButton" href="/studio/analytics">
+            Analytics
+          </Link>
           <Link className="buttonLink secondaryButton" href="/upload">
             Upload
           </Link>

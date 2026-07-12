@@ -14,6 +14,7 @@ help:
 		'  make worker-test Run media worker tests' \
 		'  make lint       Run lightweight syntax/config checks' \
 		'  make smoke      Run Sector H stack smoke check' \
+		'  make analytics-rebuild DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD  Rebuild daily analytics' \
 		'  make fixture    Generate a tiny legal MP4 fixture with ffmpeg'
 
 .PHONY: env
@@ -64,3 +65,8 @@ smoke:
 .PHONY: fixture
 fixture:
 	./scripts/generate-sample-media.sh
+
+.PHONY: analytics-rebuild
+analytics-rebuild: env
+	@test -n "$(DATE_FROM)" && test -n "$(DATE_TO)" || (echo "Set DATE_FROM and DATE_TO as YYYY-MM-DD"; exit 2)
+	$(COMPOSE) run --rm --build api python -m app.commands.rebuild_analytics --date-from "$(DATE_FROM)" --date-to "$(DATE_TO)"

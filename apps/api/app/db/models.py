@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, func, text
@@ -228,6 +228,46 @@ class VideoView(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="views")
+
+
+class VideoDailyMetric(Base):
+    __tablename__ = "video_daily_metrics"
+    __table_args__ = (
+        CheckConstraint("impressions >= 0", name="ck_video_daily_metrics_impressions_nonnegative"),
+        CheckConstraint("views >= 0", name="ck_video_daily_metrics_views_nonnegative"),
+        CheckConstraint("watch_time_seconds >= 0", name="ck_video_daily_metrics_watch_time_nonnegative"),
+        UniqueConstraint("metric_date", "video_id", name="uq_video_daily_metrics_date_video"),
+        Index("ix_video_daily_metrics_owner_date", "owner_id", "metric_date"),
+        Index("ix_video_daily_metrics_video_date", "video_id", "metric_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    metric_date: Mapped[date] = mapped_column(nullable=False)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    impressions: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    views: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    watch_time_seconds: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False, default=0, server_default="0")
+    rebuilt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class CreatorDailyMetric(Base):
+    __tablename__ = "creator_daily_metrics"
+    __table_args__ = (
+        CheckConstraint("impressions >= 0", name="ck_creator_daily_metrics_impressions_nonnegative"),
+        CheckConstraint("views >= 0", name="ck_creator_daily_metrics_views_nonnegative"),
+        CheckConstraint("watch_time_seconds >= 0", name="ck_creator_daily_metrics_watch_time_nonnegative"),
+        UniqueConstraint("metric_date", "owner_id", name="uq_creator_daily_metrics_date_owner"),
+        Index("ix_creator_daily_metrics_owner_date", "owner_id", "metric_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    metric_date: Mapped[date] = mapped_column(nullable=False)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    impressions: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    views: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    watch_time_seconds: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False, default=0, server_default="0")
+    rebuilt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class VideoThumbnail(Base):
