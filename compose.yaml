@@ -184,6 +184,33 @@ services:
       timeout: 8s
       retries: 8
 
+  search-worker:
+    build:
+      context: ./apps/api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://atlas:atlas@postgres:5432/atlas_prime}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://search:7700}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
+    command: ["celery", "-A", "app.worker.search", "worker", "--loglevel=info", "--queues=search", "--hostname=search-worker@%h", "--concurrency=1"]
+    depends_on:
+      api:
+        condition: service_healthy
+      search:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.search inspect ping --timeout=5 | grep -q pong"]
+      interval: 15s
+      timeout: 8s
+      retries: 8
+
   analytics-beat:
     build:
       context: ./apps/api

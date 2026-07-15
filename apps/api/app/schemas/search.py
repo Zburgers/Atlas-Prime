@@ -11,3 +11,8 @@ class SearchResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class SearchReindexResponse(BaseModel):
+    task_id: str
+    queue: str

@@ -15,6 +15,7 @@ help:
 		'  make lint       Run lightweight syntax/config checks' \
 		'  make smoke      Run Sector H stack smoke check' \
 		'  make analytics-rebuild DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD  Rebuild daily analytics' \
+		'  make search-reindex  Enqueue a public-video search index rebuild' \
 		'  make fixture    Generate a tiny legal MP4 fixture with ffmpeg'
 
 .PHONY: env
@@ -70,3 +71,7 @@ fixture:
 analytics-rebuild: env
 	@test -n "$(DATE_FROM)" && test -n "$(DATE_TO)" || (echo "Set DATE_FROM and DATE_TO as YYYY-MM-DD"; exit 2)
 	$(COMPOSE) run --rm --build api python -m app.commands.rebuild_analytics --date-from "$(DATE_FROM)" --date-to "$(DATE_TO)"
+
+.PHONY: search-reindex
+search-reindex: env
+	$(COMPOSE) exec search-worker celery -A app.worker.search call search_worker.rebuild_public_video_index

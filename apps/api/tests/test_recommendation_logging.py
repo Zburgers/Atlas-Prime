@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.api import admin
 from app.api.deps import get_session
 from app.db.base import Base
 from app.db.models import Video, VideoRendition
@@ -174,3 +175,23 @@ def test_admin_can_inspect_recommendation_and_search_debug_but_viewers_cannot(cl
     assert debug.json()["request_id"] == request_id
     assert search.status_code == 200
     assert [item["id"] for item in search.json()["items"]] == [video["id"]]
+
+
+def test_admin_can_enqueue_search_reindex_but_viewers_cannot(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeCelery:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def send_task(self, task_name: str, *, queue: str) -> object:
+            assert task_name == "search_worker.rebuild_public_video_index"
+            assert queue == "search"
+            return type("Task", (), {"id": "search-task-1"})()
+
+    monkeypatch.setattr(admin, "Celery", FakeCelery)
+
+    denied = client.post("/admin/search/reindex", headers=_headers("viewer"))
+    accepted = client.post("/admin/search/reindex", headers=_headers("operator"))
+
+    assert denied.status_code == 403
+    assert accepted.status_code == 202
+    assert accepted.json() == {"task_id": "search-task-1", "queue": "search"}

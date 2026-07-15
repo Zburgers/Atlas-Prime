@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from celery import Celery
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -10,9 +11,10 @@ from app.api.deps import AdminUserDep, ProcessingQueueDep, SessionDep
 from app.db.models import PlaybackEvent, Video, VideoProcessingJob
 from app.domain.status import VideoStatus
 from app.schemas.feed import RecommendationAdminResponse, RecommendationDebugResponse, RecommendationRequestSummaryResponse
-from app.schemas.search import SearchResponse
+from app.schemas.search import SearchReindexResponse, SearchResponse
 from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminVideoDebugResponse, VideoResponse
 from app.services import recommendation_logging, search as search_service
+from app.core import config
 from app.api.search import _video_list_item
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -34,6 +36,13 @@ async def search_debug(session: SessionDep, _user: AdminUserDep, q: str = Query(
     normalized = search_service.normalize_search_query(q)
     items, total = await search_service.search_public_videos(session, normalized, 1, 100)
     return SearchResponse(query=normalized, items=[_video_list_item(video) for video in items], total=total, page=1, page_size=100)
+
+
+@router.post("/search/reindex", response_model=SearchReindexResponse, status_code=status.HTTP_202_ACCEPTED)
+async def reindex_search(_user: AdminUserDep) -> SearchReindexResponse:
+    queue = Celery("atlas_api", broker=config.celery_broker_url(), backend=config.celery_result_backend())
+    task = queue.send_task("search_worker.rebuild_public_video_index", queue="search")
+    return SearchReindexResponse(task_id=str(task.id), queue="search")
 
 
 @router.get("/ops", response_model=AdminOpsResponse)

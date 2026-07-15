@@ -57,6 +57,7 @@ wait_for_health() {
 wait_for_health postgres
 wait_for_health redis
 wait_for_health minio
+wait_for_health search
 wait_for_health api
 wait_for_health web
 wait_for_health worker
