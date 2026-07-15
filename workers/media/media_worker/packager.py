@@ -59,7 +59,9 @@ class PackageResult:
 
 
 RENDITION_LADDER = (
+    RenditionPlan(label="1080p", width=1920, height=1080, target_bitrate=5_000_000),
     RenditionPlan(label="720p", width=1280, height=720, target_bitrate=2_800_000),
+    RenditionPlan(label="480p", width=854, height=480, target_bitrate=1_400_000),
     RenditionPlan(label="360p", width=640, height=360, target_bitrate=800_000),
 )
 

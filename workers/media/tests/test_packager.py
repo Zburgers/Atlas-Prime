@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from media_worker.packager import ProcessingError, package_to_hls, probe_media, rendition_plan_for
+from media_worker.packager import MediaProbe, ProcessingError, package_to_hls, probe_media, rendition_plan_for
 
 
 def test_probe_and_package_sample_fixture(tmp_path: Path) -> None:
@@ -42,6 +42,11 @@ def test_probe_rejects_unreadable_media(tmp_path: Path) -> None:
         probe_media(bad_file)
 
     assert exc_info.value.code == "MEDIA_COMMAND_FAILED"
+
+
+def test_rendition_plan_expands_without_upscaling() -> None:
+    plans = rendition_plan_for(MediaProbe(duration_seconds=1, width=1920, height=1080, video_codec="h264", audio_codec="aac", source_bitrate=6_000_000, has_audio=True))
+    assert [plan.label for plan in plans] == ["1080p", "720p", "480p", "360p"]
 
 
 def _sample_fixture(tmp_path: Path) -> Path:
