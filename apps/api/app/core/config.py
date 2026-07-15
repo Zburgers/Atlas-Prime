@@ -38,6 +38,21 @@ def processed_bucket() -> str:
     return env("MINIO_BUCKET_PROCESSED", "atlas-processed")
 
 
+def playback_delivery_mode() -> str:
+    return env("ATLAS_PLAYBACK_DELIVERY_MODE", "proxy")
+
+
+def playback_token_ttl_seconds() -> int:
+    try:
+        return max(60, min(900, int(env("ATLAS_PLAYBACK_TOKEN_TTL_SECONDS", "300"))))
+    except ValueError:
+        return 300
+
+
+def minio_public_endpoint() -> str:
+    return env("MINIO_PUBLIC_ENDPOINT")
+
+
 def upload_max_bytes() -> int:
     raw = env("ATLAS_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024))
     try:
