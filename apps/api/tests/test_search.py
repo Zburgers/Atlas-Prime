@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator, Iterator
 from uuid import UUID
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
@@ -13,6 +14,7 @@ from app.db.base import Base
 from app.db.models import Video, VideoRendition
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
+from app.services import search as search_service
 from app.services.search import _postgres_search_document
 
 
@@ -169,3 +171,68 @@ def test_postgres_search_document_uses_literal_weight_labels() -> None:
     assert "'A'" in compiled
     assert "'B'" in compiled
     assert "'C'" in compiled
+
+
+def test_meilisearch_results_are_rechecked_against_public_video_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    public_id = UUID("5c07d24d-b04d-4540-abf5-bf1fc77cdd19")
+    stale_id = UUID("a323381e-72a4-468f-a671-63ece9b8b2f4")
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "estimatedTotalHits": 2,
+                "hits": [{"id": str(stale_id)}, {"id": str(public_id)}],
+            }
+
+    class FakeClient:
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, path: str, *, json: dict[str, object]) -> FakeResponse:
+            assert path == "/indexes/atlas_videos/search"
+            assert json["filter"] == "privacy = public"
+            return FakeResponse()
+
+    class FakeResult:
+        def scalars(self) -> list[Video]:
+            return [public_video]
+
+    class FakeSession:
+        async def execute(self, _statement: object) -> FakeResult:
+            return FakeResult()
+
+    public_video = type("Video", (), {"id": public_id})()
+    monkeypatch.setattr(search_service.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    import asyncio
+
+    videos, total = asyncio.run(search_service._search_public_videos_meilisearch(FakeSession(), "atlas", 1, 20))
+
+    assert videos == [public_video]
+    assert total == 2
+
+
+def test_meilisearch_failure_falls_back_to_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeSession:
+        def get_bind(self) -> object:
+            return type("Bind", (), {"dialect": type("Dialect", (), {"name": "postgresql"})()})()
+
+    async def unavailable(*_args: object) -> tuple[list[Video], int]:
+        raise httpx.ConnectError("unavailable")
+
+    async def fallback(*_args: object) -> tuple[list[Video], int]:
+        return [], 7
+
+    monkeypatch.setenv("ATLAS_SEARCH_BACKEND", "meilisearch")
+    monkeypatch.setattr(search_service, "_search_public_videos_meilisearch", unavailable)
+    monkeypatch.setattr(search_service, "_search_public_videos_postgres", fallback)
+
+    import asyncio
+
+    assert asyncio.run(search_service.search_public_videos(FakeSession(), "atlas", 1, 20)) == ([], 7)

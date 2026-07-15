@@ -885,7 +885,7 @@ S1 - Dedicated search service:
 - Add async indexing worker.
 - Add admin index health and reindex command.
 
-Current S1 progress: Meilisearch, a `search-worker`, health reporting, and `make search-reindex` are delivered. Reindexing replaces the index from the public, ready, approved corpus; the public read path stays on PostgreSQL until the dedicated-read cutover is validated.
+Current S1 progress: Meilisearch, a `search-worker`, health reporting, `make search-reindex`, and the dedicated read path are delivered. Reindexing replaces the index from the public, ready, approved corpus. The API hydrates Meilisearch candidates from PostgreSQL and rechecks their public eligibility; service failures use PostgreSQL search as the fallback.
 
 S2 - Transcript search:
 
