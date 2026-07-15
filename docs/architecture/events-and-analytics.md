@@ -14,7 +14,13 @@ Studio analytics -> creator-owned aggregate rows
 
 `video_daily_metrics` and `creator_daily_metrics` contain UTC calendar-day totals for impressions, counted views, and watch time.
 
-Watch time is currently the sum of `video_views.position_seconds` for counted views. It is a credited watch-time metric, not a reconstruction of every player progress interval. Rich progress events remain a later increment.
+Watch time is currently the sum of `video_views.position_seconds` for counted views. It is a credited watch-time metric, not a reconstruction of every player progress interval.
+
+## Playback telemetry
+
+The watch client records player readiness, play, pause, seek, buffering start/end, ended, HLS quality changes, and fatal playback errors through `POST /videos/{video_id}/events`. Progress pings are emitted no more than once per 15 seconds of media position, so they remain useful raw diagnostic signals without writing an event for every browser time update.
+
+Playback events include the originating recommendation request ID when present. This keeps discovery results joinable to actual viewing behavior. They are not yet used to calculate creator watch-time aggregates; that remains an explicit future aggregation change.
 
 ## Rebuild Contract
 

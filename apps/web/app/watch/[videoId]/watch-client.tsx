@@ -21,6 +21,7 @@ import {
 } from "../../components/video-api";
 
 const VIEW_COUNT_THRESHOLD_SECONDS = 5;
+const PROGRESS_PING_INTERVAL_SECONDS = 15;
 
 export function WatchClient({ videoId, recommendationRequestId }: { videoId: string; recommendationRequestId?: string }) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -28,6 +29,8 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
   const viewSessionIdRef = useRef(createPlaybackSessionId());
   const viewRecordedRef = useRef(false);
   const viewRequestPendingRef = useRef(false);
+  const lastProgressPingRef = useRef(0);
+  const bufferingRef = useRef(false);
   const [video, setVideo] = useState<Video | null>(null);
   const [engagement, setEngagement] = useState<VideoEngagementResponse | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -45,7 +48,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
   const [playerError, setPlayerError] = useState<string | null>(null);
 
   const recordPlaybackEvent = useCallback(
-    async (event_type: "player_ready" | "error" | "unsupported" | "play" | "pause", quality_label?: string) => {
+    async (event_type: "player_ready" | "error" | "unsupported" | "play" | "pause" | "seek" | "progress_ping" | "buffer_start" | "buffer_end" | "ended" | "quality_change", quality_label?: string) => {
       try {
         const token = isSignedIn ? await getToken() : null;
         await apiRequest(`/videos/${videoId}/events`, {
@@ -95,6 +98,15 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
       viewRequestPendingRef.current = false;
     }
   }, [getToken, isSignedIn, recommendationRequestId, videoId]);
+
+  const recordProgress = useCallback(() => {
+    const position = videoRef.current?.currentTime ?? 0;
+    if (position < lastProgressPingRef.current + PROGRESS_PING_INTERVAL_SECONDS) {
+      return;
+    }
+    lastProgressPingRef.current = position;
+    void recordPlaybackEvent("progress_ping");
+  }, [recordPlaybackEvent]);
 
   const applyEngagement = useCallback((result: VideoEngagementResponse) => {
     setEngagement(result);
@@ -246,6 +258,8 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
     viewSessionIdRef.current = createPlaybackSessionId();
     viewRecordedRef.current = false;
     viewRequestPendingRef.current = false;
+    lastProgressPingRef.current = 0;
+    bufferingRef.current = false;
   }, [videoId]);
 
   useEffect(() => {
@@ -283,6 +297,10 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
         void recordPlaybackEvent("error", data.type);
       }
     });
+    hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+      const level = hls.levels[data.level];
+      void recordPlaybackEvent("quality_change", level?.height ? `${level.height}p` : undefined);
+    });
 
     return () => hls.destroy();
   }, [playback, recordPlaybackEvent]);
@@ -311,7 +329,22 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
               poster={playback.thumbnail_url ? backendAssetUrl(playback.thumbnail_url) : undefined}
               onPause={() => void recordPlaybackEvent("pause")}
               onPlay={() => void recordPlaybackEvent("play")}
-              onTimeUpdate={() => void recordView()}
+              onSeeking={() => void recordPlaybackEvent("seek")}
+              onEnded={() => void recordPlaybackEvent("ended")}
+              onWaiting={() => {
+                bufferingRef.current = true;
+                void recordPlaybackEvent("buffer_start");
+              }}
+              onCanPlay={() => {
+                if (bufferingRef.current) {
+                  bufferingRef.current = false;
+                  void recordPlaybackEvent("buffer_end");
+                }
+              }}
+              onTimeUpdate={() => {
+                void recordView();
+                recordProgress();
+              }}
             >
               {playback.text_tracks.map((track) => (
                 <track

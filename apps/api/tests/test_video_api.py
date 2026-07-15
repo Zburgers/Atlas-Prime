@@ -517,6 +517,21 @@ def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> 
     assert body["quality_label"] == "manifestLoadError"
 
 
+def test_playback_progress_event_is_recorded_for_accessible_video(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Progress telemetry"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+
+    response = client.post(
+        f"/videos/{video_id}/events",
+        headers=_headers("owner"),
+        json={"event_type": "progress_ping", "position_seconds": 15},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["event_type"] == "progress_ping"
+
+
 def test_admin_ops_reports_worker_and_queue_health(client: TestClient) -> None:
     _storage, queue = _install_upload_fakes(client)
 
