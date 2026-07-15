@@ -37,3 +37,9 @@ POST /admin/analytics/rebuild?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
 ```
 
 Only Clerk user IDs listed in `ATLAS_ADMIN_CLERK_USER_IDS` can invoke the endpoint. Creator-facing data is available through `GET /studio/analytics?days=28` and is always scoped to the signed-in owner.
+
+## Scheduled aggregation
+
+`analytics-worker` consumes only the dedicated `analytics` Celery queue. `analytics-beat` is the single scheduler and enqueues `analytics_worker.rebuild_daily_metrics` at 00:05 UTC each day. The task rebuilds the current and previous UTC dates so delayed event writes can be incorporated safely. It reuses the same deterministic rebuild service as the protected admin endpoint and `make analytics-rebuild` command.
+
+Do not run more than one beat scheduler for this task; Celery Beat schedulers are publishers, not distributed locks. The media worker continues to consume only `media` jobs and must not be used for analytics aggregation.
