@@ -319,6 +319,13 @@ export type ProcessingStatus = {
   failure_message: string | null;
 };
 
+export type VideoChapter = {
+  title: string;
+  start_seconds: string;
+};
+
+export type VideoChapterListResponse = { items: VideoChapter[] };
+
 export type PlaybackResponse = {
   video_id: string;
   status: VideoStatus;
@@ -336,6 +343,7 @@ export type PlaybackResponse = {
     created_at: string;
   }>;
   text_tracks: TextTrack[];
+  chapters: VideoChapter[];
 };
 
 export type UploadResponse = {

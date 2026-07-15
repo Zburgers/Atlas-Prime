@@ -192,6 +192,7 @@ async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUse
             {"id": track.id, "language": track.language, "label": track.label, "kind": track.kind, "default": track.is_default, "url": f"/videos/{video.id}/captions/{track.id}", "created_at": track.created_at}
             for track in sorted(video.text_tracks, key=lambda item: (not item.is_default, item.language))
         ],
+        chapters=[{"title": chapter.title, "start_seconds": chapter.start_seconds} for chapter in sorted(video.chapters, key=lambda item: item.position)],
     )
 
 

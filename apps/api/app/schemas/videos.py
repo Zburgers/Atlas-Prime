@@ -193,6 +193,26 @@ class RenditionResponse(BaseModel):
     created_at: datetime
 
 
+class VideoChapterInput(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    start_seconds: Decimal = Field(ge=0, decimal_places=3)
+
+
+class VideoChapterResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    title: str
+    start_seconds: Decimal
+
+
+class VideoChapterReplace(BaseModel):
+    items: list[VideoChapterInput] = Field(max_length=100)
+
+
+class VideoChapterListResponse(BaseModel):
+    items: list[VideoChapterResponse]
+
+
 class PlaybackResponse(BaseModel):
     video_id: UUID
     status: VideoStatus
@@ -200,6 +220,7 @@ class PlaybackResponse(BaseModel):
     thumbnail_url: str | None
     renditions: list[RenditionResponse]
     text_tracks: list[TextTrackResponse] = []
+    chapters: list[VideoChapterResponse] = []
 
 
 class VideoUploadResponse(BaseModel):

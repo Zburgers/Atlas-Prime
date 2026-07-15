@@ -181,3 +181,31 @@ def test_studio_retries_failed_video_only_when_safe(client: TestClient) -> None:
     ]
     assert status_response.json()["video_status"] == "queued"
     assert status_response.json()["failure_code"] is None
+
+
+def test_owner_can_replace_ordered_chapters(client: TestClient) -> None:
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Chaptered lesson"}).json()
+
+    replaced = client.put(
+        f"/studio/videos/{video['id']}/chapters",
+        headers=_headers("owner"),
+        json={
+            "items": [
+                {"title": "Introduction", "start_seconds": 0},
+                {"title": "Practice", "start_seconds": 42.5},
+            ]
+        },
+    )
+    listed = client.get(f"/studio/videos/{video['id']}/chapters", headers=_headers("owner"))
+    denied = client.get(f"/studio/videos/{video['id']}/chapters", headers=_headers("other"))
+    _set_video_state(client, video_id=video["id"], status=VideoStatus.READY)
+    playback = client.get(f"/videos/{video['id']}/playback", headers=_headers("owner"))
+
+    assert replaced.status_code == 200
+    assert replaced.json()["items"] == [
+        {"title": "Introduction", "start_seconds": "0.000"},
+        {"title": "Practice", "start_seconds": "42.500"},
+    ]
+    assert listed.json() == replaced.json()
+    assert denied.status_code == 403
+    assert playback.json()["chapters"] == replaced.json()["items"]

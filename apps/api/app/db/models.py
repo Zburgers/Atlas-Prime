@@ -121,6 +121,7 @@ class Video(Base):
     recommendation_results: Mapped[list[RecommendationResult]] = relationship(back_populates="video", cascade="all, delete-orphan")
     thumbnails: Mapped[list[VideoThumbnail]] = relationship(back_populates="video", cascade="all, delete-orphan")
     text_tracks: Mapped[list[VideoTextTrack]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    chapters: Mapped[list[VideoChapter]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
 
 class VideoRendition(Base):
@@ -151,6 +152,25 @@ class VideoRendition(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="renditions")
+
+
+class VideoChapter(Base):
+    __tablename__ = "video_chapters"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_video_chapters_position_nonnegative"),
+        CheckConstraint("start_seconds >= 0", name="ck_video_chapters_start_nonnegative"),
+        UniqueConstraint("video_id", "position", name="uq_video_chapters_video_position"),
+        UniqueConstraint("video_id", "start_seconds", name="uq_video_chapters_video_start"),
+        Index("ix_video_chapters_video_position", "video_id", "position"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    position: Mapped[int] = mapped_column(nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    start_seconds: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
+
+    video: Mapped[Video] = relationship(back_populates="chapters")
 
 
 class VideoProcessingJob(Base):

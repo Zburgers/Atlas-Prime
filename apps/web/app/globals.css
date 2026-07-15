@@ -782,10 +782,15 @@ dd {
 .captionDefault { align-items: center; display: flex !important; gap: 8px; min-height: 38px; }
 .captionList { border-top: 1px solid var(--line); display: grid; gap: 0; list-style: none; margin: 20px 0 0; padding: 0; }
 .captionList li { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 12px; justify-content: space-between; padding: 12px 0; }
+.chapterForm { display: grid; gap: 12px; }
+.chapterRow { align-items: end; border-bottom: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) auto; padding-bottom: 12px; }
+.chapterRow label { display: grid; gap: 6px; }
+.chapterActions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 @media (max-width: 760px) {
   .captionForm { align-items: stretch; grid-template-columns: 1fr; }
   .captionDefault { min-height: auto; }
+  .chapterRow { align-items: stretch; grid-template-columns: 1fr; }
 }
 
 .authPanel {

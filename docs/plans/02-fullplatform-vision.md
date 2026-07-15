@@ -654,6 +654,8 @@ GET    /notifications
 PATCH  /notifications/{notification_id}
 POST   /studio/videos/{video_id}/captions
 POST   /studio/videos/{video_id}/thumbnails
+GET    /studio/videos/{video_id}/chapters
+PUT    /studio/videos/{video_id}/chapters
 POST   /studio/videos/{video_id}/retry-processing
 POST   /studio/videos/{video_id}/publish
 ```
