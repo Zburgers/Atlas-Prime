@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import timedelta
 from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
@@ -193,10 +194,30 @@ async def get_processing_status(
 @router.get("/videos/{video_id}/playback", response_model=PlaybackResponse)
 async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUserDep) -> PlaybackResponse:
     video = await video_service.video_with_renditions_for_playback(session, user, video_id)
+    master_playlist_url = f"/videos/{video.id}/hls/master.m3u8" if video.hls_master_storage_key else None
+    if master_playlist_url and config.playback_delivery_mode() == "signed-redirect":
+        if not config.minio_public_endpoint():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"error": "ServiceUnavailable", "message": "Signed playback delivery is not configured"},
+            )
+        try:
+            token = playback_delivery.issue_token(
+                video_id=str(video.id),
+                token_version=video.playback_token_version,
+                viewer_id=str(user.id) if user else None,
+                ttl=timedelta(seconds=config.playback_token_ttl_seconds()),
+            )
+        except playback_delivery.PlaybackTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"error": "ServiceUnavailable", "message": "Signed playback delivery is not configured"},
+            ) from None
+        master_playlist_url = f"/videos/{video.id}/delivery/master.m3u8?token={quote(token, safe='')}"
     return PlaybackResponse(
         video_id=video.id,
         status=VideoStatus(video.status),
-        master_playlist_url=f"/videos/{video.id}/hls/master.m3u8" if video.hls_master_storage_key else None,
+        master_playlist_url=master_playlist_url,
         thumbnail_url=f"/videos/{video.id}/thumbnail" if video.thumbnail_storage_key else None,
         renditions=list(video.renditions),
         text_tracks=[

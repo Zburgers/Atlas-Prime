@@ -466,6 +466,27 @@ def test_playback_metadata_and_hls_master_are_served_for_owner(client: TestClien
     assert storage.requests == [master_key]
 
 
+def test_playback_returns_signed_master_url_when_delivery_mode_is_enabled(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.playback_delivery import verify_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_DELIVERY_MODE", "signed-redirect")
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Signed playback"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+
+    response = client.get(f"/videos/{video_id}/playback", headers=_headers("owner"))
+
+    assert response.status_code == 200
+    url = response.json()["master_playlist_url"]
+    assert url.startswith(f"/videos/{video_id}/delivery/master.m3u8?token=")
+    token = url.split("?token=", maxsplit=1)[1]
+    assert verify_token(token, video_id=video_id, token_version=1).viewer_id is not None
+
+
 def test_hls_segment_uses_immutable_cache_headers(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready segment"})
     video_id = created.json()["id"]
