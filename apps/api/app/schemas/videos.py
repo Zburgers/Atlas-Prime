@@ -176,6 +176,10 @@ class ProcessingStatusResponse(BaseModel):
     failure_message: str | None
 
 
+class ProcessingTimelineResponse(BaseModel):
+    items: list[ProcessingJobResponse]
+
+
 class RenditionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

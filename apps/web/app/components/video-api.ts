@@ -319,6 +319,8 @@ export type ProcessingStatus = {
   failure_message: string | null;
 };
 
+export type ProcessingTimelineResponse = { items: ProcessingJob[] };
+
 export type VideoChapter = {
   title: string;
   start_seconds: string;

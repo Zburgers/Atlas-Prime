@@ -786,6 +786,11 @@ dd {
 .chapterRow { align-items: end; border-bottom: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) auto; padding-bottom: 12px; }
 .chapterRow label { display: grid; gap: 6px; }
 .chapterActions { display: flex; flex-wrap: wrap; gap: 10px; }
+.processingTimeline { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
+.processingTimeline li { border-top: 1px solid var(--line); display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; padding: 12px 0; }
+.processingTimeline strong { display: block; }
+.processingTimeline time { color: var(--faint); font-size: 0.85rem; white-space: nowrap; }
+.processingTimeline .errorText { grid-column: 1 / -1; margin: 0; }
 
 @media (max-width: 760px) {
   .captionForm { align-items: stretch; grid-template-columns: 1fr; }

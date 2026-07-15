@@ -64,6 +64,16 @@ async def update_creator_video(session: AsyncSession, user: User, video_id: UUID
     return video
 
 
+async def processing_timeline(session: AsyncSession, user: User, video_id: UUID) -> list[VideoProcessingJob]:
+    video = await video_service.get_video_for_owner(session, user, video_id)
+    result = await session.execute(
+        select(VideoProcessingJob)
+        .where(VideoProcessingJob.video_id == video.id)
+        .order_by(VideoProcessingJob.created_at, VideoProcessingJob.id)
+    )
+    return list(result.scalars())
+
+
 async def retry_failed_video(
     session: AsyncSession,
     user: User,

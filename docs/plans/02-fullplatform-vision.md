@@ -656,6 +656,7 @@ POST   /studio/videos/{video_id}/captions
 POST   /studio/videos/{video_id}/thumbnails
 GET    /studio/videos/{video_id}/chapters
 PUT    /studio/videos/{video_id}/chapters
+GET    /studio/videos/{video_id}/processing-timeline
 POST   /studio/videos/{video_id}/retry-processing
 POST   /studio/videos/{video_id}/publish
 ```

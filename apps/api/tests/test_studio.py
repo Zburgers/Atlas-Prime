@@ -209,3 +209,24 @@ def test_owner_can_replace_ordered_chapters(client: TestClient) -> None:
     assert listed.json() == replaced.json()
     assert denied.status_code == 403
     assert playback.json()["chapters"] == replaced.json()["items"]
+
+
+def test_owner_can_view_processing_timeline(client: TestClient) -> None:
+    queue = FakeProcessingQueue()
+    app.dependency_overrides[get_processing_queue] = lambda: queue
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Timeline"}).json()
+    _set_video_state(
+        client,
+        video_id=video["id"],
+        status=VideoStatus.FAILED,
+        original_storage_key=f"originals/{video['id']}/source.mp4",
+    )
+    client.post(f"/studio/videos/{video['id']}/retry-processing", headers=_headers("owner"))
+
+    response = client.get(f"/studio/videos/{video['id']}/processing-timeline", headers=_headers("owner"))
+    denied = client.get(f"/studio/videos/{video['id']}/processing-timeline", headers=_headers("other"))
+
+    assert response.status_code == 200
+    assert response.json()["items"][-1]["status"] == "queued"
+    assert response.json()["items"][-1]["stage"] == "queued"
+    assert denied.status_code == 403
