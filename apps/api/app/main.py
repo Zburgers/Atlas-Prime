@@ -1,10 +1,12 @@
 import os
+import re
+import uuid
 from typing import Any
 
 import asyncpg
 import boto3
 from botocore.config import Config
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from redis.asyncio import from_url as redis_from_url
 
 from app.api.admin import router as admin_router
@@ -40,6 +42,19 @@ app.include_router(studio_analytics_router)
 app.include_router(analytics_admin_router)
 app.include_router(thumbnails_router)
 app.include_router(admin_router)
+
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
+    request_id = request.headers.get("x-request-id", "")
+    if not REQUEST_ID_PATTERN.fullmatch(request_id):
+        request_id = uuid.uuid4().hex
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 def _env(name: str, default: str = "") -> str:

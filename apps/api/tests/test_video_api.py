@@ -407,13 +407,17 @@ def test_playback_metadata_and_hls_master_are_served_for_owner(client: TestClien
     _install_hls_fake(storage)
 
     metadata = client.get(f"/videos/{video_id}/playback", headers=_headers("owner"))
-    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("owner"))
+    response = client.get(
+        f"/videos/{video_id}/hls/master.m3u8",
+        headers={**_headers("owner"), "X-Request-ID": "hls-master-1"},
+    )
 
     assert metadata.status_code == 200
     assert metadata.json()["master_playlist_url"] == f"/videos/{video_id}/hls/master.m3u8"
     assert response.status_code == 200
     assert response.content == b"#EXTM3U\n"
     assert response.headers["content-type"].startswith("application/vnd.apple.mpegurl")
+    assert response.headers["x-request-id"] == "hls-master-1"
     assert response.headers["cache-control"] == "private, no-cache"
     assert response.headers["etag"] == '"test-etag"'
     assert storage.requests == [master_key]
@@ -436,17 +440,23 @@ def test_hls_segment_uses_immutable_cache_headers(client: TestClient) -> None:
     assert storage.requests == [segment_key]
 
 
-def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient) -> None:
+def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient, caplog) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Private ready"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
     storage = FakeProcessedHlsStorage()
     _install_hls_fake(storage)
 
-    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("other"))
+    with caplog.at_level("WARNING"):
+        response = client.get(
+            f"/videos/{video_id}/hls/master.m3u8",
+            headers={**_headers("other"), "X-Request-ID": "hls-denied-1"},
+        )
 
     assert response.status_code == 403
+    assert response.headers["x-request-id"] == "hls-denied-1"
     assert storage.requests == []
+    assert "stage=hls_asset_denied request_id=hls-denied-1" in caplog.text
 
 
 def test_public_hls_asset_can_be_served_without_identity(client: TestClient) -> None:
@@ -480,18 +490,24 @@ def test_hls_path_traversal_is_rejected_before_storage_read(client: TestClient) 
     assert storage.requests == []
 
 
-def test_hls_unknown_allowed_asset_returns_404(client: TestClient) -> None:
+def test_hls_unknown_allowed_asset_returns_404(client: TestClient, caplog) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Missing object"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
     storage = FakeProcessedHlsStorage()
     _install_hls_fake(storage)
 
-    response = client.get(f"/videos/{video_id}/hls/360p/segment_999.ts", headers=_headers("owner"))
+    with caplog.at_level("WARNING"):
+        response = client.get(
+            f"/videos/{video_id}/hls/360p/segment_999.ts",
+            headers={**_headers("owner"), "X-Request-ID": "hls-missing-1"},
+        )
 
     assert response.status_code == 404
     assert response.json()["detail"]["message"] == "HLS asset not found"
+    assert response.headers["x-request-id"] == "hls-missing-1"
     assert storage.requests == [f"processed/{video_id}/hls/360p/segment_999.ts"]
+    assert "stage=hls_asset_missing request_id=hls-missing-1" in caplog.text
 
 
 def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> None:

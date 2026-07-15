@@ -4,7 +4,7 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, Path, Query, Response, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Path, Query, Request, Response, UploadFile, status
 
 from app.db.models import PlaybackEvent
 from app.api.deps import (
@@ -199,17 +199,31 @@ async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUse
 async def hls_asset(
     video_id: UUID,
     asset_path: Annotated[str, Path(min_length=1)],
+    request: Request,
     session: SessionDep,
     user: OptionalCurrentUserDep,
     storage: ProcessedHlsStorageDep,
 ) -> Response:
-    video = await video_service.video_with_renditions_for_playback(session, user, video_id)
+    request_id = request.state.request_id
+    try:
+        video = await video_service.video_with_renditions_for_playback(session, user, video_id)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_403_FORBIDDEN:
+            logger.warning(
+                "sector=G stage=hls_asset_denied request_id=%s video_id=%s user_id=%s asset_path=%s",
+                request_id,
+                video_id,
+                getattr(user, "id", None),
+                asset_path,
+            )
+        raise
     storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
     try:
         hls_object = storage.get_hls_object(key=storage_key)
     except HlsObjectNotFoundError:
         logger.warning(
-            "sector=G stage=hls_asset_missing video_id=%s storage_key=%s asset_path=%s",
+            "sector=G stage=hls_asset_missing request_id=%s video_id=%s storage_key=%s asset_path=%s",
+            request_id,
             video_id,
             storage_key,
             asset_path,
