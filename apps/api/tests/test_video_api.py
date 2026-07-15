@@ -114,6 +114,7 @@ class FakeProcessedHlsStorage:
     def __init__(self, objects: dict[str, tuple[bytes, str]] | None = None) -> None:
         self.objects = objects or {}
         self.requests: list[str] = []
+        self.presigned_requests: list[tuple[str, int]] = []
 
     def get_hls_object(self, *, key: str) -> HlsObject:
         self.requests.append(key)
@@ -130,6 +131,7 @@ class FakeProcessedHlsStorage:
         )
 
     def presign_hls_object(self, *, key: str, expires_in: int) -> str:
+        self.presigned_requests.append((key, expires_in))
         return self.presigned_url
 
 
@@ -515,12 +517,18 @@ def test_signed_delivery_redirects_segment_bytes_to_minio(client: TestClient, mo
     storage = FakeProcessedHlsStorage()
     storage.presigned_url = "https://media.example/segment.ts?signature=ok"
     _install_hls_fake(storage)
-    token = issue_token(video_id=video_id, token_version=1, viewer_id="owner", ttl=__import__("datetime").timedelta(seconds=60))
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    token = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
 
-    response = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={token}", follow_redirects=False)
+    response = client.get(
+        f"/videos/{video_id}/delivery/360p/segment_000.ts?token={token}",
+        headers=_headers("owner"),
+        follow_redirects=False,
+    )
 
     assert response.status_code == 307
     assert response.headers["location"] == storage.presigned_url
+    assert storage.presigned_requests[0][0] == f"processed/{video_id}/hls/360p/segment_000.ts"
 
 
 def test_signed_delivery_rewrites_playlist_uris_with_the_token(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -540,16 +548,91 @@ def test_signed_delivery_rewrites_playlist_uris_with_the_token(client: TestClien
         }
     )
     _install_hls_fake(storage)
-    token = issue_token(video_id=video_id, token_version=1, viewer_id="owner", ttl=__import__("datetime").timedelta(seconds=60))
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    token = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
 
-    master_response = client.get(f"/videos/{video_id}/delivery/master.m3u8?token={token}")
-    rendition_response = client.get(f"/videos/{video_id}/delivery/360p/playlist.m3u8?token={token}")
+    master_response = client.get(f"/videos/{video_id}/delivery/master.m3u8?token={token}", headers=_headers("owner"))
+    rendition_response = client.get(f"/videos/{video_id}/delivery/360p/playlist.m3u8?token={token}", headers=_headers("owner"))
 
     assert master_response.status_code == 200
     assert master_response.text == f"#EXTM3U\n360p/playlist.m3u8?token={token}\n"
     assert rendition_response.status_code == 200
     assert rendition_response.text == f"#EXTM3U\nsegment_000.ts?token={token}\n"
     assert storage.requests == [master_key, rendition_key]
+
+
+def test_signed_delivery_rejects_expired_or_rotated_private_tokens(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Protected delivery"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    expired = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=-1))
+    active = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
+
+    expired_response = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={expired}", headers=_headers("owner"), follow_redirects=False)
+    assert client.post(f"/studio/videos/{video_id}/rotate-playback-token", headers=_headers("owner")).status_code == 200
+    rotated_response = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={active}", headers=_headers("owner"), follow_redirects=False)
+
+    assert expired_response.status_code == 401
+    assert rotated_response.status_code == 401
+    assert storage.presigned_requests == []
+
+
+def test_signed_delivery_enforces_private_viewer_binding(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    private = client.post("/videos", headers=_headers("owner"), json={"title": "Private token"}).json()
+    _mark_video_ready(client, video_id=private["id"])
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    private_token = issue_token(video_id=private["id"], token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
+
+    mint_denied = client.get(f"/videos/{private['id']}/playback", headers=_headers("other"))
+    private_delivery = client.get(
+        f"/videos/{private['id']}/delivery/360p/segment_000.ts?token={private_token}",
+        headers=_headers("other"),
+        follow_redirects=False,
+    )
+
+    assert mint_denied.status_code == 403
+    assert private_delivery.status_code == 403
+    assert storage.presigned_requests == []
+
+
+@pytest.mark.parametrize("privacy", [VideoPrivacy.PUBLIC, VideoPrivacy.UNLISTED])
+def test_signed_delivery_allows_anonymous_public_and_unlisted_playback(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, privacy: VideoPrivacy
+) -> None:
+    monkeypatch.setenv("ATLAS_PLAYBACK_DELIVERY_MODE", "signed-redirect")
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": f"{privacy.value} token"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id, privacy=privacy)
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+
+    playback = client.get(f"/videos/{video_id}/playback")
+    token = playback.json()["master_playlist_url"].split("?token=", maxsplit=1)[1]
+    delivery = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={token}", follow_redirects=False)
+
+    assert playback.status_code == 200
+    assert delivery.status_code == 307
+    assert storage.presigned_requests[0][0] == f"processed/{video_id}/hls/360p/segment_000.ts"
 
 
 def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient, caplog) -> None:

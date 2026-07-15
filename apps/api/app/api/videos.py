@@ -280,6 +280,7 @@ async def signed_delivery_asset(
     asset_path: Annotated[str, Path(min_length=1)],
     token: Annotated[str, Query(min_length=1)],
     session: SessionDep,
+    user: OptionalCurrentUserDep,
     storage: ProcessedHlsStorageDep,
 ) -> Response:
     if not config.minio_public_endpoint():
@@ -295,6 +296,11 @@ async def signed_delivery_asset(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "Unauthorized", "message": "Invalid playback token"},
         ) from None
+    if claims.viewer_id is not None and (user is None or str(user.id) != claims.viewer_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Forbidden", "message": "Playback token is not valid for this viewer"},
+        )
 
     storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
     if media_type == PLAYLIST_MEDIA_TYPE:

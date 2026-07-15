@@ -856,7 +856,7 @@ MINIO_PUBLIC_ENDPOINT=https://media.example.com        # browser-routable origin
 
 Token rules:
 
-- Token claims include `video_id`, optional viewer id, expiry, nonce/version, and delivery mode.
+- Token claims include `video_id`, optional viewer id, expiry, nonce/version, and delivery mode. When a token has a viewer id, delivery must require the same authenticated viewer; anonymous public/unlisted playback uses a viewerless token.
 - Store `playback_token_version` on `videos`; owner/admin rotation increments it and invalidates manifest access immediately.
 - Segment presigned URLs must not outlive the remaining token lifetime. Already-issued object URLs remain usable only until that short expiry; immediate revocation applies to subsequent manifest and segment requests.
 - Keep buckets private. Object storage must allow only signed requests and must configure CORS for the web origin, `GET`/`HEAD`, and the HLS response headers required by the player.
@@ -1797,4 +1797,25 @@ public surfaces
 ```sh
 docker compose run --rm --build api pytest tests/test_captions.py -q
 npm --workspace apps/web run build
+```
+
+### Delivery D2 - Signed Redirect Playback
+
+**Goal:** Remove HLS segment bytes from the API data plane without weakening private-by-default playback access.
+
+**Delivered contract:**
+
+- `GET /videos/{id}/playback` keeps API access checks and returns the proxy route by default; opt-in `signed-redirect` mode returns a short-lived, versioned API delivery-manifest URL.
+- Delivery manifests remain API-owned and rewrite nested relative playlist and segment URIs with the same signed token.
+- Segment requests validate token expiry, version, HLS path, and bound viewer identity before returning a short-lived MinIO redirect.
+- Viewer-bound private tokens reject another authenticated viewer; anonymous public and unlisted playback use viewerless tokens.
+- Creator token rotation invalidates future manifest and segment requests; processed and original buckets remain private.
+- MinIO uses explicit configurable browser CORS origins for signed object responses.
+
+**Validation:**
+
+```sh
+make lint
+make test
+make smoke
 ```
