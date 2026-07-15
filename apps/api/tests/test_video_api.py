@@ -186,6 +186,45 @@ def test_create_video_defaults_to_private_draft(client: TestClient) -> None:
     assert body["owner_id"]
 
 
+def test_deleting_a_video_removes_original_and_processed_storage(client: TestClient) -> None:
+    class LifecycleOriginalStorage:
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
+        def delete_original(self, *, key: str) -> None:
+            self.deleted.append(key)
+
+    class LifecycleProcessedStorage:
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
+        def delete_video_tree(self, *, video_id: UUID) -> int:
+            self.deleted.append(str(video_id))
+            return 4
+
+    original = LifecycleOriginalStorage()
+    processed = LifecycleProcessedStorage()
+    app.dependency_overrides[get_original_storage] = lambda: original
+    app.dependency_overrides[get_processed_hls_storage] = lambda: processed
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Delete me"}).json()
+
+    import asyncio
+
+    async def set_original() -> None:
+        async with app.state.test_session_maker() as session:
+            item = await session.get(Video, UUID(video["id"]))
+            assert item is not None
+            item.original_storage_key = f"originals/{video['id']}/source.mp4"
+            await session.commit()
+
+    asyncio.run(set_original())
+    response = client.delete(f"/videos/{video['id']}", headers=_headers("owner"))
+
+    assert response.status_code == 204
+    assert original.deleted == [f"originals/{video['id']}/source.mp4"]
+    assert processed.deleted == [video["id"]]
+
+
 def test_private_video_is_owner_only(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Private cut"})
     video_id = created.json()["id"]

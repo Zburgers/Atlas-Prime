@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -11,6 +12,9 @@ from app.db.models import User, Video, VideoProcessingJob
 from app.domain.status import JobStatus, ModerationStatus, VideoPrivacy, VideoStatus, validate_video_transition
 from app.schemas.videos import ProcessingStatusResponse, VideoCreate, VideoUpdate
 from app.services.channels import ensure_default_channel
+from app.services.storage import OriginalStorage, ProcessedHlsStorage
+
+logger = logging.getLogger(__name__)
 
 
 def _not_found() -> HTTPException:
@@ -97,10 +101,27 @@ async def update_video(session: AsyncSession, user: User, video_id: UUID, payloa
     return video
 
 
-async def delete_video(session: AsyncSession, user: User, video_id: UUID) -> None:
+async def delete_video(
+    session: AsyncSession,
+    user: User,
+    video_id: UUID,
+    original_storage: OriginalStorage,
+    processed_storage: ProcessedHlsStorage,
+) -> None:
     video = await get_video_for_owner(session, user, video_id)
+    try:
+        if video.original_storage_key:
+            original_storage.delete_original(key=video.original_storage_key)
+        deleted_processed = processed_storage.delete_video_tree(video_id=video.id)
+    except Exception:
+        logger.exception("sector=C/D stage=video_delete_storage_cleanup_failed video_id=%s", video.id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": "StorageCleanupFailed", "message": "Video storage could not be removed"},
+        ) from None
     await session.delete(video)
     await session.commit()
+    logger.info("sector=C/D stage=video_deleted video_id=%s processed_objects_deleted=%s", video_id, deleted_processed)
 
 
 async def transition_video_status(session: AsyncSession, video: Video, target: VideoStatus) -> Video:

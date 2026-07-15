@@ -133,8 +133,14 @@ async def update_video(video_id: UUID, payload: VideoUpdate, session: SessionDep
 
 
 @router.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_video(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> Response:
-    await video_service.delete_video(session, user, video_id)
+async def delete_video(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+    original_storage: OriginalStorageDep,
+    processed_storage: ProcessedHlsStorageDep,
+) -> Response:
+    await video_service.delete_video(session, user, video_id, original_storage, processed_storage)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

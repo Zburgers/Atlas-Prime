@@ -31,6 +31,9 @@ class OriginalStorage:
     ) -> StoredObject:
         raise NotImplementedError
 
+    def delete_original(self, *, key: str) -> None:
+        raise NotImplementedError
+
 
 class HlsObjectNotFoundError(Exception):
     pass
@@ -56,6 +59,9 @@ class ProcessedHlsStorage:
         raise NotImplementedError
 
     def get_caption(self, *, key: str) -> HlsObject:
+        raise NotImplementedError
+
+    def delete_video_tree(self, *, video_id: UUID) -> int:
         raise NotImplementedError
 
 
@@ -89,6 +95,9 @@ class MinioOriginalStorage(OriginalStorage):
             ExtraArgs={"ContentType": content_type},
         )
         return StoredObject(bucket=self._bucket, key=key, size_bytes=size_bytes, content_type=content_type)
+
+    def delete_original(self, *, key: str) -> None:
+        self._client.delete_object(Bucket=self._bucket, Key=key)
 
 
 class MinioProcessedHlsStorage(ProcessedHlsStorage):
@@ -132,6 +141,26 @@ class MinioProcessedHlsStorage(ProcessedHlsStorage):
 
     def get_caption(self, *, key: str) -> HlsObject:
         return self.get_hls_object(key=key)
+
+    def delete_video_tree(self, *, video_id: UUID) -> int:
+        prefix = f"processed/{video_id}/"
+        deleted = 0
+        continuation_token: str | None = None
+        while True:
+            response = self._client.list_objects_v2(
+                Bucket=self._bucket,
+                Prefix=prefix,
+                **({"ContinuationToken": continuation_token} if continuation_token else {}),
+            )
+            objects = [{"Key": item["Key"]} for item in response.get("Contents", [])]
+            if objects:
+                delete_response = self._client.delete_objects(Bucket=self._bucket, Delete={"Objects": objects, "Quiet": True})
+                if delete_response.get("Errors"):
+                    raise RuntimeError(f"processed object deletion failed for video {video_id}")
+                deleted += len(objects)
+            if not response.get("IsTruncated"):
+                return deleted
+            continuation_token = response.get("NextContinuationToken")
 
 
 def original_storage_key(video_id: UUID, extension: str) -> str:
