@@ -64,6 +64,9 @@ class ProcessedHlsStorage:
     def delete_video_tree(self, *, video_id: UUID) -> int:
         raise NotImplementedError
 
+    def presign_hls_object(self, *, key: str, expires_in: int) -> str:
+        raise NotImplementedError
+
 
 class MinioOriginalStorage(OriginalStorage):
     def __init__(self) -> None:
@@ -161,6 +164,9 @@ class MinioProcessedHlsStorage(ProcessedHlsStorage):
             if not response.get("IsTruncated"):
                 return deleted
             continuation_token = response.get("NextContinuationToken")
+
+    def presign_hls_object(self, *, key: str, expires_in: int) -> str:
+        return self._client.generate_presigned_url("get_object", Params={"Bucket": self._bucket, "Key": key}, ExpiresIn=expires_in)
 
 
 def original_storage_key(video_id: UUID, extension: str) -> str:
