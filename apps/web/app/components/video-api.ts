@@ -73,6 +73,17 @@ export type WatchHistoryItem = {
 
 export type WatchHistoryResponse = { items: WatchHistoryItem[] };
 
+export type Playlist = {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  privacy: "private" | "public";
+  created_at: string;
+  updated_at: string;
+  items: Array<{ id: string; position: number; created_at: string; video: VideoListItem }>;
+};
+
 export type StudioVideoListResponse = VideoListResponse;
 
 export type SearchResponse = {

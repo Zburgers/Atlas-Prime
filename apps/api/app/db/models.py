@@ -435,6 +435,40 @@ class WatchHistory(Base):
     video: Mapped[Video] = relationship()
 
 
+class Playlist(Base):
+    __tablename__ = "playlists"
+    __table_args__ = (
+        CheckConstraint("privacy in ('private', 'public')", name="ck_playlists_privacy"),
+        Index("ix_playlists_owner_created_at", "owner_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    privacy: Mapped[str] = mapped_column(Text, nullable=False, default="private", server_default="private")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    items: Mapped[list[PlaylistItem]] = relationship(back_populates="playlist", cascade="all, delete-orphan")
+
+
+class PlaylistItem(Base):
+    __tablename__ = "playlist_items"
+    __table_args__ = (
+        UniqueConstraint("playlist_id", "video_id", name="uq_playlist_items_playlist_video"),
+        UniqueConstraint("playlist_id", "position", name="uq_playlist_items_playlist_position"),
+        Index("ix_playlist_items_playlist_position", "playlist_id", "position"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    playlist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    position: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    playlist: Mapped[Playlist] = relationship(back_populates="items")
+    video: Mapped[Video] = relationship()
+
+
 class VideoComment(Base):
     __tablename__ = "video_comments"
     __table_args__ = (

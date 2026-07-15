@@ -14,6 +14,7 @@ export function AppHeader() {
         <Link href="/search">Search</Link>
         <Link href="/subscriptions">Subscriptions</Link>
         <Link href="/library">Library</Link>
+        <Link href="/playlists/new">Playlists</Link>
         <Link href="/studio">Studio</Link>
         <Link href="/upload">Upload</Link>
         <Link href="/admin">Admin</Link>

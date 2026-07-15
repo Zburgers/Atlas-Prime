@@ -18,6 +18,8 @@ from app.db.models import (
     CreatorDailyMetric,
     ModerationAction,
     PlaybackEvent,
+    Playlist,
+    PlaylistItem,
     RecommendationRequest,
     RecommendationResult,
     User,

@@ -14,6 +14,7 @@ from app.api.comments import router as comments_router
 from app.api.feed import router as feed_router
 from app.api.library import router as library_router
 from app.api.moderation import router as moderation_router
+from app.api.playlists import router as playlists_router
 from app.api.search import router as search_router
 from app.api.studio import router as studio_router
 from app.api.studio_analytics import admin_router as analytics_admin_router
@@ -33,6 +34,7 @@ app.include_router(search_router)
 app.include_router(feed_router)
 app.include_router(library_router)
 app.include_router(moderation_router)
+app.include_router(playlists_router)
 app.include_router(studio_router)
 app.include_router(studio_analytics_router)
 app.include_router(analytics_admin_router)
