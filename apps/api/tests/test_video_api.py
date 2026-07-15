@@ -502,6 +502,35 @@ def test_signed_delivery_redirects_segment_bytes_to_minio(client: TestClient, mo
     assert response.headers["location"] == storage.presigned_url
 
 
+def test_signed_delivery_rewrites_playlist_uris_with_the_token(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Rewrite playlist"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    master_key = f"processed/{video_id}/hls/master.m3u8"
+    rendition_key = f"processed/{video_id}/hls/360p/playlist.m3u8"
+    storage = FakeProcessedHlsStorage(
+        {
+            master_key: (b"#EXTM3U\n360p/playlist.m3u8\n", "application/vnd.apple.mpegurl"),
+            rendition_key: (b"#EXTM3U\nsegment_000.ts\n", "application/vnd.apple.mpegurl"),
+        }
+    )
+    _install_hls_fake(storage)
+    token = issue_token(video_id=video_id, token_version=1, viewer_id="owner", ttl=__import__("datetime").timedelta(seconds=60))
+
+    master_response = client.get(f"/videos/{video_id}/delivery/master.m3u8?token={token}")
+    rendition_response = client.get(f"/videos/{video_id}/delivery/360p/playlist.m3u8?token={token}")
+
+    assert master_response.status_code == 200
+    assert master_response.text == f"#EXTM3U\n360p/playlist.m3u8?token={token}\n"
+    assert rendition_response.status_code == 200
+    assert rendition_response.text == f"#EXTM3U\nsegment_000.ts?token={token}\n"
+    assert storage.requests == [master_key, rendition_key]
+
+
 def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient, caplog) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Private ready"})
     video_id = created.json()["id"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Path, Query, Request, Response, UploadFile, status
@@ -276,9 +277,20 @@ async def signed_delivery_asset(
 
     storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
     if media_type == PLAYLIST_MEDIA_TYPE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "Conflict", "message": "Signed playlist delivery is not configured"},
+        try:
+            hls_object = storage.get_hls_object(key=storage_key)
+        except HlsObjectNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "NotFound", "message": "HLS asset not found"},
+            ) from None
+        headers = {"Cache-Control": cache_control}
+        if hls_object.etag:
+            headers["ETag"] = hls_object.etag
+        return Response(
+            content=_rewrite_delivery_playlist(hls_object.body, token),
+            media_type=PLAYLIST_MEDIA_TYPE,
+            headers=headers,
         )
 
     expires_in = max(1, claims.expires_at - int(time.time()))
@@ -431,6 +443,19 @@ def _resolve_hls_asset(video: object, asset_path: str) -> tuple[str, str, str]:
             detail={"error": "BadRequest", "message": "Invalid HLS asset path"},
         )
     return expected_key, SEGMENT_MEDIA_TYPES[suffix], SEGMENT_CACHE_CONTROL
+
+
+def _rewrite_delivery_playlist(body: bytes, token: str) -> bytes:
+    encoded_token = quote(token, safe="")
+    rewritten: list[str] = []
+    for line in body.decode("utf-8").splitlines(keepends=True):
+        uri = line.rstrip("\r\n")
+        line_ending = line[len(uri) :]
+        if uri and not uri.startswith("#"):
+            rewritten.append(f"{uri}?token={encoded_token}{line_ending}")
+        else:
+            rewritten.append(line)
+    return "".join(rewritten).encode()
 
 
 def _invalid_hls_path() -> HTTPException:
