@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -44,3 +45,15 @@ class RecommendationDebugResponse(BaseModel):
     page_size: int
     total_results: int
     results: list[RecommendationDebugResultResponse]
+
+
+class RecommendationRequestSummaryResponse(BaseModel):
+    request_id: str
+    surface: str
+    algorithm_version: str
+    total_results: int
+    created_at: datetime
+
+
+class RecommendationAdminResponse(BaseModel):
+    items: list[RecommendationRequestSummaryResponse]

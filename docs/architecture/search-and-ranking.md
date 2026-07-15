@@ -19,3 +19,7 @@ The API persists each page of results under its request ID. A repeated request w
 - `related-v1`: public candidates excluding the current video; videos from the current video's channel receive a fixed priority boost, then use the same freshness and engagement score.
 
 These rules are intentionally simple while event quality and public inventory mature. Personalized retrieval, transcript candidates, and ML ranking remain future work under the rollout plan.
+
+## Admin diagnostics
+
+`GET /admin/recommendations` lists recent persisted feed requests. `GET /admin/recommendations/{request_id}` exposes the ranked results with joined impression, playback, and counted-view totals. `GET /admin/search?q=...` executes the deterministic public-search path for debugging. All three routes require the existing admin authorization contract.

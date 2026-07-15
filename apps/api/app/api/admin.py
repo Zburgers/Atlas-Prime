@@ -9,9 +9,31 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import AdminUserDep, ProcessingQueueDep, SessionDep
 from app.db.models import PlaybackEvent, Video, VideoProcessingJob
 from app.domain.status import VideoStatus
+from app.schemas.feed import RecommendationAdminResponse, RecommendationDebugResponse, RecommendationRequestSummaryResponse
+from app.schemas.search import SearchResponse
 from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminVideoDebugResponse, VideoResponse
+from app.services import recommendation_logging, search as search_service
+from app.api.search import _video_list_item
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/recommendations", response_model=RecommendationAdminResponse)
+async def recent_recommendations(session: SessionDep, _user: AdminUserDep, limit: int = Query(default=25, ge=1, le=100)) -> RecommendationAdminResponse:
+    items = await recommendation_logging.recent_recommendation_requests(session, limit=limit)
+    return RecommendationAdminResponse(items=[RecommendationRequestSummaryResponse(request_id=item.request_id, surface=item.surface, algorithm_version=item.algorithm_version, total_results=item.total_results, created_at=item.created_at) for item in items])
+
+
+@router.get("/recommendations/{request_id}", response_model=RecommendationDebugResponse)
+async def recommendation_debug(request_id: str, session: SessionDep, _user: AdminUserDep) -> RecommendationDebugResponse:
+    return await recommendation_logging.admin_recommendation_debug(session, request_id=request_id)
+
+
+@router.get("/search", response_model=SearchResponse)
+async def search_debug(session: SessionDep, _user: AdminUserDep, q: str = Query(default="", max_length=120)) -> SearchResponse:
+    normalized = search_service.normalize_search_query(q)
+    items, total = await search_service.search_public_videos(session, normalized, 1, 100)
+    return SearchResponse(query=normalized, items=[_video_list_item(video) for video in items], total=total, page=1, page_size=100)
 
 
 @router.get("/ops", response_model=AdminOpsResponse)

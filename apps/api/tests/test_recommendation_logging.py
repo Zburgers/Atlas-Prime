@@ -52,6 +52,7 @@ def client() -> Iterator[TestClient]:
 @pytest.fixture(autouse=True)
 def enable_dev_auth_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_ALLOW_DEV_AUTH_HEADERS", "true")
+    monkeypatch.setenv("ATLAS_ADMIN_CLERK_USER_IDS", "operator")
 
 
 def _headers(user_id: str = "viewer", email: str = "viewer@example.com") -> dict[str, str]:
@@ -146,3 +147,23 @@ def test_recommendation_debug_joins_impression_playback_and_view_events(client: 
     assert result["impression_count"] == 1
     assert result["playback_event_count"] == 1
     assert result["view_count"] == 1
+
+
+def test_admin_can_inspect_recommendation_and_search_debug_but_viewers_cannot(client: TestClient) -> None:
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Atlas search lesson"}).json()
+    _mark_video_ready(client, video_id=video["id"])
+    request_id = "admin-recommendation-request"
+    assert client.get(f"/feed/home?request_id={request_id}", headers=_headers("viewer")).status_code == 200
+
+    denied = client.get("/admin/recommendations", headers=_headers("viewer"))
+    recent = client.get("/admin/recommendations", headers=_headers("operator"))
+    debug = client.get(f"/admin/recommendations/{request_id}", headers=_headers("operator"))
+    search = client.get("/admin/search?q=atlas", headers=_headers("operator"))
+
+    assert denied.status_code == 403
+    assert recent.status_code == 200
+    assert recent.json()["items"][0]["request_id"] == request_id
+    assert debug.status_code == 200
+    assert debug.json()["request_id"] == request_id
+    assert search.status_code == 200
+    assert [item["id"] for item in search.json()["items"]] == [video["id"]]

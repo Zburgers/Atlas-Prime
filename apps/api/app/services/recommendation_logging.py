@@ -42,6 +42,18 @@ class RecommendationDebug:
     results: list[RecommendationDebugResult]
 
 
+async def recent_recommendation_requests(session: AsyncSession, *, limit: int) -> list[RecommendationRequest]:
+    result = await session.execute(select(RecommendationRequest).order_by(RecommendationRequest.created_at.desc()).limit(limit))
+    return list(result.scalars())
+
+
+async def admin_recommendation_debug(session: AsyncSession, *, request_id: str) -> RecommendationDebug:
+    recommendation_request = await session.scalar(select(RecommendationRequest).where(RecommendationRequest.request_id == request_id))
+    if recommendation_request is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": "NotFound", "message": "Feed request not found"})
+    return await _recommendation_debug(session, recommendation_request)
+
+
 async def load_feed_results(
     session: AsyncSession,
     *,
@@ -148,7 +160,10 @@ async def recommendation_debug(session: AsyncSession, *, request_id: str, user: 
     )
     if recommendation_request is None or recommendation_request.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": "NotFound", "message": "Feed request not found"})
+    return await _recommendation_debug(session, recommendation_request)
 
+
+async def _recommendation_debug(session: AsyncSession, recommendation_request: RecommendationRequest) -> RecommendationDebug:
     result = await session.execute(
         select(RecommendationResult)
         .where(RecommendationResult.recommendation_request_id == recommendation_request.id)
@@ -156,9 +171,9 @@ async def recommendation_debug(session: AsyncSession, *, request_id: str, user: 
     )
     ranked_results = list(result.scalars())
     video_ids = [item.video_id for item in ranked_results]
-    impression_counts = await _event_counts(session, VideoImpression, request_id, video_ids)
-    playback_counts = await _event_counts(session, PlaybackEvent, request_id, video_ids)
-    view_counts = await _event_counts(session, VideoView, request_id, video_ids)
+    impression_counts = await _event_counts(session, VideoImpression, recommendation_request.request_id, video_ids)
+    playback_counts = await _event_counts(session, PlaybackEvent, recommendation_request.request_id, video_ids)
+    view_counts = await _event_counts(session, VideoView, recommendation_request.request_id, video_ids)
     return RecommendationDebug(
         request_id=recommendation_request.request_id,
         surface=recommendation_request.surface,
