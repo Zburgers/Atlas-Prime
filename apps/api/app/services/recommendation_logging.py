@@ -27,6 +27,7 @@ class RecommendationDebugResult:
     score: float
     reason: str
     impression_count: int
+    click_count: int
     playback_event_count: int
     view_count: int
 
@@ -172,6 +173,7 @@ async def _recommendation_debug(session: AsyncSession, recommendation_request: R
     ranked_results = list(result.scalars())
     video_ids = [item.video_id for item in ranked_results]
     impression_counts = await _event_counts(session, VideoImpression, recommendation_request.request_id, video_ids)
+    click_counts = await _playback_event_counts(session, recommendation_request.request_id, video_ids, event_type="card_click")
     playback_counts = await _event_counts(session, PlaybackEvent, recommendation_request.request_id, video_ids)
     view_counts = await _event_counts(session, VideoView, recommendation_request.request_id, video_ids)
     return RecommendationDebug(
@@ -188,7 +190,8 @@ async def _recommendation_debug(session: AsyncSession, recommendation_request: R
                 score=float(item.score),
                 reason=item.reason,
                 impression_count=impression_counts.get(item.video_id, 0),
-                playback_event_count=playback_counts.get(item.video_id, 0),
+                click_count=click_counts.get(item.video_id, 0),
+                playback_event_count=max(0, playback_counts.get(item.video_id, 0) - click_counts.get(item.video_id, 0)),
                 view_count=view_counts.get(item.video_id, 0),
             )
             for item in ranked_results
@@ -209,4 +212,11 @@ async def _event_counts(
         .where(model.request_id == request_id, model.video_id.in_(video_ids))
         .group_by(model.video_id)
     )
+    return {video_id: int(count) for video_id, count in result.all()}
+
+
+async def _playback_event_counts(session: AsyncSession, request_id: str, video_ids: list[UUID], *, event_type: str) -> dict[UUID, int]:
+    if not video_ids:
+        return {}
+    result = await session.execute(select(PlaybackEvent.video_id, func.count(PlaybackEvent.id)).where(PlaybackEvent.request_id == request_id, PlaybackEvent.video_id.in_(video_ids), PlaybackEvent.event_type == event_type).group_by(PlaybackEvent.video_id))
     return {video_id: int(count) for video_id, count in result.all()}

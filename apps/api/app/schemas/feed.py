@@ -33,6 +33,7 @@ class RecommendationDebugResultResponse(BaseModel):
     score: float
     reason: str
     impression_count: int
+    click_count: int
     playback_event_count: int
     view_count: int
 

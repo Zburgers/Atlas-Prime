@@ -127,6 +127,10 @@ export function VideoCard({
   const impressionRecordedRef = useRef(false);
   const channelLabel = video.channel_display_name ?? "Channel pending";
   const watchHref = requestId ? `/watch/${video.id}?request_id=${encodeURIComponent(requestId)}` : `/watch/${video.id}`;
+  const recordClick = async () => {
+    if (!requestId || !surface) return;
+    try { await apiRequest(`/videos/${video.id}/events`, { token: getToken ? await getToken() : null, method: "POST", body: { event_type: "card_click", request_id: requestId } }); } catch { /* Telemetry must not block navigation. */ }
+  };
 
   useEffect(() => {
     impressionRecordedRef.current = false;
@@ -174,7 +178,7 @@ export function VideoCard({
 
   return (
     <article className="videoCard" role="listitem" ref={cardRef}>
-      <Link className="thumbnailFrame" href={watchHref} aria-label={`Open ${video.title}`}>
+      <Link className="thumbnailFrame" href={watchHref} aria-label={`Open ${video.title}`} onClick={() => void recordClick()}>
         {video.thumbnail_url ? (
           <Image
             alt=""
@@ -206,7 +210,7 @@ export function VideoCard({
         </div>
         <div className="cardActions">
           <StatusPill status={video.status} />
-          <Link className="secondaryLink" href={watchHref}>
+          <Link className="secondaryLink" href={watchHref} onClick={() => void recordClick()}>
             Open
           </Link>
         </div>

@@ -131,6 +131,11 @@ def test_recommendation_debug_joins_impression_playback_and_view_events(client: 
         headers=_headers(),
         json={"event_type": "play", "position_seconds": 2, "request_id": request_id},
     )
+    click = client.post(
+        f"/videos/{video['id']}/events",
+        headers=_headers(),
+        json={"event_type": "card_click", "request_id": request_id},
+    )
     view = client.post(
         f"/videos/{video['id']}/views",
         headers=_headers(),
@@ -140,11 +145,13 @@ def test_recommendation_debug_joins_impression_playback_and_view_events(client: 
 
     assert impression.status_code == 201
     assert playback.status_code == 201
+    assert click.status_code == 201
     assert view.status_code == 201
     assert debug.status_code == 200
     result = debug.json()["results"][0]
     assert result["video_id"] == video["id"]
     assert result["impression_count"] == 1
+    assert result["click_count"] == 1
     assert result["playback_event_count"] == 1
     assert result["view_count"] == 1
 

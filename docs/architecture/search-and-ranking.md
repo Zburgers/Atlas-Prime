@@ -12,6 +12,8 @@ Atlas Prime starts discovery with deterministic, inspectable ranking. All ranked
 
 The API persists each page of results under its request ID. A repeated request with the same parameters replays that result set. Browser cards propagate the request ID to impression, play, pause, and counted-view events so `/feed/requests/{request_id}/debug` can join feed results to observed activity.
 
+Feed-card navigation also records a best-effort `card_click` event. Debug responses expose clicks separately from playback events.
+
 ## Deterministic algorithms
 
 - `home-v1`: freshness plus logarithmic view and like signal.

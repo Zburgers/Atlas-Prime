@@ -34,7 +34,7 @@ class VideoUpdate(BaseModel):
 class PlaybackEventCreate(BaseModel):
     event_type: Literal[
         "player_ready", "play", "pause", "seek", "progress_ping", "buffer_start", "buffer_end", "ended",
-        "error", "unsupported", "buffering", "quality_change",
+        "error", "unsupported", "buffering", "quality_change", "card_click",
     ]
     position_seconds: Decimal | None = Field(default=None, ge=0)
     quality_label: str | None = Field(default=None, max_length=40)
