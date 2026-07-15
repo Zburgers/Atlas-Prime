@@ -84,7 +84,7 @@ export function VideoList() {
       </Show>
 
       {loading ? <VideoListSkeleton /> : null}
-      {error ? <p className="errorText">{error}</p> : null}
+      {error ? <p className="errorText" role="alert">{error}</p> : null}
       {!loading && !error && feedItems.length === 0 ? <EmptyLibrary /> : null}
       {!loading && !error && feedItems.length > 0 ? (
         <div className="videoGrid" role="list">
@@ -233,7 +233,7 @@ function EmptyLibrary() {
 
 function VideoListSkeleton() {
   return (
-    <div className="skeletonStack" aria-label="Loading videos">
+    <div className="skeletonStack" aria-label="Loading videos" aria-live="polite" role="status">
       <span />
       <span />
       <span />

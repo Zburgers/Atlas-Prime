@@ -320,7 +320,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
 
         <div className="playerFrame">
           {loading ? <p>Loading video...</p> : null}
-          {error ? <p className="errorText">{error}</p> : null}
+          {error ? <p className="errorText" role="alert">{error}</p> : null}
           {!loading && !error && playback?.master_playlist_url ? (
             <video
               ref={videoRef}
@@ -365,7 +365,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
             </div>
           ) : null}
         </div>
-        {playerError ? <p className="errorText">{playerError}</p> : null}
+        {playerError ? <p className="errorText" role="alert">{playerError}</p> : null}
 
         <section className="commentThread" aria-labelledby="comments-heading">
           <div className="sectionHeader">
@@ -397,7 +397,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
             <p className="muted">Sign in to comment.</p>
           )}
 
-          {commentsError ? <p className="errorText">{commentsError}</p> : null}
+          {commentsError ? <p className="errorText" role="alert">{commentsError}</p> : null}
           {comments.length === 0 && !commentsError ? <p className="muted">No comments yet.</p> : null}
           <div className="commentList">
             {comments.map((comment) => (
@@ -440,7 +440,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
               {formatCount(video.like_count, "like")}
               {!isSignedIn ? " / sign in to save or like" : ""}
             </p>
-            {engagementError ? <p className="errorText">{engagementError}</p> : null}
+            {engagementError ? <p className="errorText" role="alert">{engagementError}</p> : null}
           </section>
         ) : null}
         {video ? (

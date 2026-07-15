@@ -12,6 +12,16 @@
   --danger: #ff8c7a;
   --warning: #f2c96d;
   --ready: #7de3b2;
+  --on-accent: #101412;
+  --code-bg: #090c0a;
+  --media-bg: #060807;
+  --media-overlay: rgb(6 8 7 / 0.82);
+  --control-bg: #0b0f0d;
+  --accent-border: #7ca36f;
+  --ready-border: #2f8f67;
+  --danger-border: #8f3f36;
+  --warning-border: #8d7437;
+  --focus-ring: rgb(155 225 123 / 0.24);
 }
 
 * {
@@ -33,7 +43,7 @@ body {
 }
 
 :focus-visible { outline: 3px solid var(--accent-strong); outline-offset: 3px; }
-.skipLink { background: var(--accent-strong); color: #101412; left: 12px; padding: 10px 14px; position: fixed; top: -80px; z-index: 10; }
+.skipLink { background: var(--accent-strong); color: var(--on-accent); left: 12px; padding: 10px 14px; position: fixed; top: -80px; z-index: 10; }
 .skipLink:focus { top: 12px; }
 
 a {
@@ -72,7 +82,7 @@ p {
 }
 
 code {
-  background: #090c0a;
+  background: var(--code-bg);
   border: 1px solid var(--line);
   border-radius: 4px;
   color: var(--accent-strong);
@@ -83,10 +93,10 @@ button,
 .buttonLink,
 .secondaryLink {
   align-items: center;
-  border: 1px solid #7ca36f;
+  border: 1px solid var(--accent-border);
   border-radius: 6px;
   background: var(--accent-strong);
-  color: #101412;
+  color: var(--on-accent);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -360,7 +370,7 @@ button:disabled {
 
 .relatedThumbnail {
   aspect-ratio: 16 / 9;
-  background: #060807;
+  background: var(--media-bg);
   border: 1px solid var(--line);
   border-radius: 5px;
   display: block;
@@ -384,7 +394,7 @@ button:disabled {
 .thumbnailFrame {
   align-items: center;
   aspect-ratio: 16 / 9;
-  background: #060807;
+  background: var(--media-bg);
   border-bottom: 1px solid var(--line);
   display: flex;
   justify-content: center;
@@ -406,7 +416,7 @@ button:disabled {
 }
 
 .durationBadge {
-  background: rgb(6 8 7 / 0.82);
+  background: var(--media-overlay);
   border-radius: 4px;
   bottom: 10px;
   color: var(--text);
@@ -549,11 +559,11 @@ button:disabled {
 }
 
 .metric-ready {
-  border-color: #2f8f67;
+  border-color: var(--ready-border);
 }
 
 .metric-failed {
-  border-color: #8f3f36;
+  border-color: var(--danger-border);
 }
 
 .statusPill {
@@ -567,12 +577,12 @@ button:disabled {
 }
 
 .status-ready {
-  border-color: #2f8f67;
+  border-color: var(--ready-border);
   color: var(--ready);
 }
 
 .status-failed {
-  border-color: #8f3f36;
+  border-color: var(--danger-border);
   color: var(--danger);
 }
 
@@ -580,7 +590,7 @@ button:disabled {
 .status-probing,
 .status-processing,
 .status-uploading {
-  border-color: #8d7437;
+  border-color: var(--warning-border);
   color: var(--warning);
 }
 
@@ -648,7 +658,7 @@ dt {
 input,
 textarea,
 select {
-  background: #0b0f0d;
+  background: var(--control-bg);
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--text);
@@ -667,7 +677,7 @@ input:focus,
 textarea:focus,
 select:focus {
   border-color: var(--accent);
-  outline: 2px solid rgb(155 225 123 / 0.24);
+  outline: 2px solid var(--focus-ring);
 }
 
 .plainList {
@@ -702,7 +712,7 @@ dd {
 .playerFrame {
   align-items: center;
   aspect-ratio: 16 / 9;
-  background: #060807;
+  background: var(--media-bg);
   border: 1px solid var(--line);
   border-radius: 8px;
   display: flex;
@@ -856,13 +866,22 @@ dd {
   }
 
   .appHeader nav {
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
     width: 100%;
   }
 
   .appHeader nav a {
-    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .captionList li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .captionList li > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   main { padding: 20px 16px 40px; }
