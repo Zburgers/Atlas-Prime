@@ -30,7 +30,13 @@ def test_probe_and_package_sample_fixture(tmp_path: Path) -> None:
     assert (result.hls_root / "thumbnail.jpg").stat().st_size > 0
     assert result.master_storage_key.endswith("/hls/master.m3u8")
     assert result.thumbnail_storage_key.endswith("/hls/thumbnail.jpg")
-    assert result.generated_thumbnail_storage_keys == [result.thumbnail_storage_key]
+    assert result.generated_thumbnail_storage_keys == [
+        result.thumbnail_storage_key,
+        "processed/00000000-0000-0000-0000-000000000001/hls/thumbnail_02.jpg",
+        "processed/00000000-0000-0000-0000-000000000001/hls/thumbnail_03.jpg",
+    ]
+    assert (result.hls_root / "thumbnail_02.jpg").stat().st_size > 0
+    assert (result.hls_root / "thumbnail_03.jpg").stat().st_size > 0
     assert len(result.renditions) == 1
 
 

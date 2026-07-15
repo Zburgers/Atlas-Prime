@@ -241,31 +241,24 @@ def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: Med
             )
         )
 
-    thumbnail_path = hls_root / "thumbnail.jpg"
-    _run(
-        [
-            "ffmpeg",
-            "-y",
-            "-ss",
-            "0.1",
-            "-i",
-            str(source),
-            "-frames:v",
-            "1",
-            "-q:v",
-            "3",
-            str(thumbnail_path),
-        ],
-        timeout=30,
-    )
+    thumbnail_offsets = _thumbnail_offsets(probe.duration_seconds)
+    thumbnail_paths = [hls_root / "thumbnail.jpg", *[hls_root / f"thumbnail_{index:02d}.jpg" for index in range(2, len(thumbnail_offsets) + 1)]]
+    for offset, thumbnail_path in zip(thumbnail_offsets, thumbnail_paths, strict=True):
+        _run(["ffmpeg", "-y", "-ss", str(offset), "-i", str(source), "-frames:v", "1", "-q:v", "3", str(thumbnail_path)], timeout=30)
     _write_master_playlist(hls_root / "master.m3u8", renditions)
     return PackageResult(
         hls_root=hls_root,
         master_storage_key=f"processed/{video_id}/hls/master.m3u8",
         thumbnail_storage_key=f"processed/{video_id}/hls/thumbnail.jpg",
-        generated_thumbnail_storage_keys=[f"processed/{video_id}/hls/thumbnail.jpg"],
+        generated_thumbnail_storage_keys=[f"processed/{video_id}/hls/{path.name}" for path in thumbnail_paths],
         renditions=renditions,
     )
+
+
+def _thumbnail_offsets(duration_seconds: float | None) -> list[float]:
+    if duration_seconds is None or duration_seconds <= 1:
+        return [0.1]
+    return [min(duration_seconds - 0.1, fraction * duration_seconds) for fraction in (0.1, 0.5, 0.9)]
 
 
 def _write_master_playlist(path: Path, renditions: list[PackagedRendition]) -> None:
