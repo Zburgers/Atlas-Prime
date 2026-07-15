@@ -89,6 +89,7 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
             job_id,
             exc.code,
         )
+        _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id)
         repository.mark_failed(
             video_id=video_id,
             job_id=job_id,
@@ -97,6 +98,7 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
         return {"status": "failed", "video_id": video_id, "job_id": job_id, "failure_code": exc.code}
     except Exception as exc:
         logger.exception("sector=D stage=processing_exception video_id=%s job_id=%s", video_id, job_id)
+        _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id)
         repository.mark_failed(
             video_id=video_id,
             job_id=job_id,
@@ -109,3 +111,11 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
             "failure_code": "PROCESSING_FAILED",
             "detail": exc.__class__.__name__,
         }
+
+
+def _cleanup_hls_tree(storage: ObjectStorage, *, video_id: str, job_id: str) -> None:
+    try:
+        deleted = storage.delete_hls_tree(video_id=video_id)
+        logger.info("sector=D stage=partial_hls_cleanup video_id=%s job_id=%s deleted_objects=%s", video_id, job_id, deleted)
+    except Exception:
+        logger.exception("sector=D stage=partial_hls_cleanup_failed video_id=%s job_id=%s", video_id, job_id)

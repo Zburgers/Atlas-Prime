@@ -41,6 +41,24 @@ class ObjectStorage:
             uploaded.append(key)
         return uploaded
 
+    def delete_hls_tree(self, *, video_id: str) -> int:
+        prefix = f"processed/{video_id}/hls/"
+        deleted = 0
+        continuation_token: str | None = None
+        while True:
+            response = self._client.list_objects_v2(
+                Bucket=self._processed_bucket,
+                Prefix=prefix,
+                **({"ContinuationToken": continuation_token} if continuation_token else {}),
+            )
+            objects = [{"Key": item["Key"]} for item in response.get("Contents", [])]
+            if objects:
+                self._client.delete_objects(Bucket=self._processed_bucket, Delete={"Objects": objects, "Quiet": True})
+                deleted += len(objects)
+            if not response.get("IsTruncated"):
+                return deleted
+            continuation_token = response.get("NextContinuationToken")
+
 
 def _content_type(path: Path) -> str:
     suffix = path.suffix.lower()
