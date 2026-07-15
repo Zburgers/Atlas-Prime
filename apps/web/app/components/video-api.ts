@@ -45,6 +45,7 @@ export type VideoListItem = {
   thumbnail_url: string | null;
   channel_handle: string | null;
   channel_display_name: string | null;
+  caption_snippet: string | null;
   duration_seconds: string | null;
   width: number | null;
   height: number | null;

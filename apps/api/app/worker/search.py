@@ -8,6 +8,7 @@ from celery import Celery
 from app.core import config
 from app.db.session import SessionLocal
 from app.services.search_index import rebuild_public_video_index
+from app.services.storage import MinioProcessedHlsStorage
 
 SEARCH_QUEUE = "search"
 SEARCH_REINDEX_TASK = "search_worker.rebuild_public_video_index"
@@ -24,7 +25,7 @@ def rebuild_index() -> dict[str, object]:
 
 async def _rebuild_index() -> dict[str, object]:
     async with SessionLocal() as session:
-        summary = await rebuild_public_video_index(session)
+        summary = await rebuild_public_video_index(session, MinioProcessedHlsStorage())
     payload = {"document_count": summary.document_count, "task_uid": summary.task_uid}
     logger.info("sector=G stage=search_reindex_complete %s", payload)
     return payload

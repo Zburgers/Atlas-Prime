@@ -133,6 +133,7 @@ class VideoListItemResponse(BaseModel):
     thumbnail_url: str | None = None
     channel_handle: str | None = None
     channel_display_name: str | None = None
+    caption_snippet: str | None = None
     duration_seconds: Decimal | None
     width: int | None
     height: int | None

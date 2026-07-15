@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from uuid import UUID
 
 import httpx
@@ -16,6 +17,12 @@ from app.services.search_index import INDEX_UID
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class SearchResult:
+    video: Video
+    caption_snippet: str | None = None
+
+
 def normalize_search_query(query: str) -> str:
     return " ".join(query.strip().split())
 
@@ -25,7 +32,7 @@ async def search_public_videos(
     query: str,
     page: int,
     page_size: int,
-) -> tuple[list[Video], int]:
+) -> tuple[list[SearchResult], int]:
     normalized_query = normalize_search_query(query)
     if not normalized_query:
         return [], 0
@@ -46,7 +53,7 @@ async def _search_public_videos_meilisearch(
     query: str,
     page: int,
     page_size: int,
-) -> tuple[list[Video], int]:
+) -> tuple[list[SearchResult], int]:
     headers = {"Authorization": f"Bearer {config.meilisearch_master_key()}"} if config.meilisearch_master_key() else {}
     async with httpx.AsyncClient(base_url=config.meilisearch_url(), headers=headers, timeout=5) as client:
         response = await client.post(
@@ -60,7 +67,8 @@ async def _search_public_videos_meilisearch(
         )
         response.raise_for_status()
     payload = response.json()
-    document_ids = [UUID(str(hit["id"])) for hit in payload.get("hits", [])]
+    indexed_by_id = {UUID(str(hit["id"])): hit for hit in payload.get("hits", [])}
+    document_ids = list(indexed_by_id)
     if not document_ids:
         return [], int(payload.get("estimatedTotalHits", 0))
 
@@ -70,8 +78,12 @@ async def _search_public_videos_meilisearch(
         .where(Video.id.in_(document_ids), _public_ready())
     )
     videos_by_id = {video.id: video for video in result.scalars()}
-    videos = [videos_by_id[video_id] for video_id in document_ids if video_id in videos_by_id]
-    return videos, int(payload.get("estimatedTotalHits", len(videos)))
+    results = [
+        SearchResult(video=videos_by_id[video_id], caption_snippet=_caption_snippet(indexed_by_id[video_id].get("caption_text"), query))
+        for video_id in document_ids
+        if video_id in videos_by_id
+    ]
+    return results, int(payload.get("estimatedTotalHits", len(results)))
 
 
 async def _search_public_videos_postgres(
@@ -79,7 +91,7 @@ async def _search_public_videos_postgres(
     query: str,
     page: int,
     page_size: int,
-) -> tuple[list[Video], int]:
+) -> tuple[list[SearchResult], int]:
     document = _postgres_search_document()
     ts_query = func.websearch_to_tsquery("english", query)
     rank = func.ts_rank_cd(document, ts_query).label("search_rank")
@@ -100,7 +112,7 @@ async def _search_public_videos_postgres(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    return list(result.scalars()), int(total or 0)
+    return [SearchResult(video=video) for video in result.scalars()], int(total or 0)
 
 
 async def _search_public_videos_fallback(
@@ -108,7 +120,7 @@ async def _search_public_videos_fallback(
     query: str,
     page: int,
     page_size: int,
-) -> tuple[list[Video], int]:
+) -> tuple[list[SearchResult], int]:
     lowered_query = query.lower()
     contains_query = f"%{lowered_query}%"
     starts_query = f"{lowered_query}%"
@@ -150,7 +162,19 @@ async def _search_public_videos_fallback(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    return list(result.scalars()), int(total or 0)
+    return [SearchResult(video=video) for video in result.scalars()], int(total or 0)
+
+
+def _caption_snippet(value: object, query: str) -> str | None:
+    text = value if isinstance(value, str) else ""
+    index = text.casefold().find(query.casefold())
+    if index < 0:
+        return None
+    start = max(0, index - 72)
+    end = min(len(text), index + len(query) + 120)
+    prefix = "..." if start else ""
+    suffix = "..." if end < len(text) else ""
+    return f"{prefix}{text[start:end].strip()}{suffix}"
 
 
 def _postgres_search_document() -> object:

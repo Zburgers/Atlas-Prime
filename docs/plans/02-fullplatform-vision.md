@@ -892,6 +892,8 @@ S2 - Transcript search:
 - Index captions/transcripts.
 - Return matching transcript snippets.
 
+Current S2 progress: uploaded WebVTT tracks are normalized by the search worker, included in the eligible video document, and rendered as plain-text snippets only for matching public search results.
+
 S3 - Hybrid search:
 
 - Combine lexical relevance, semantic vector similarity, engagement quality, freshness, and personalization.

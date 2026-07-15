@@ -456,6 +456,13 @@ button:disabled {
   margin-bottom: 8px;
 }
 
+.captionSnippet {
+  border-left: 2px solid var(--accent-border);
+  color: var(--text) !important;
+  font-size: 0.9rem;
+  padding-left: 10px;
+}
+
 .cardActions {
   align-items: center;
   display: flex;

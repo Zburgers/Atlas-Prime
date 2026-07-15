@@ -35,7 +35,7 @@ async def recommendation_debug(request_id: str, session: SessionDep, _user: Admi
 async def search_debug(session: SessionDep, _user: AdminUserDep, q: str = Query(default="", max_length=120)) -> SearchResponse:
     normalized = search_service.normalize_search_query(q)
     items, total = await search_service.search_public_videos(session, normalized, 1, 100)
-    return SearchResponse(query=normalized, items=[_video_list_item(video) for video in items], total=total, page=1, page_size=100)
+    return SearchResponse(query=normalized, items=[_video_list_item(item.video, item.caption_snippet) for item in items], total=total, page=1, page_size=100)
 
 
 @router.post("/search/reindex", response_model=SearchReindexResponse, status_code=status.HTTP_202_ACCEPTED)

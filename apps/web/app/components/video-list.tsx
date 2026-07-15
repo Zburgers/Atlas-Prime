@@ -114,6 +114,7 @@ export function VideoCard({
   getToken,
   feedRank,
   feedReason,
+  captionSnippet,
 }: {
   video: VideoListItem;
   surface?: string;
@@ -122,6 +123,7 @@ export function VideoCard({
   getToken?: ImpressionTokenProvider;
   feedRank?: number;
   feedReason?: string;
+  captionSnippet?: string | null;
 }) {
   const cardRef = useRef<HTMLElement | null>(null);
   const impressionRecordedRef = useRef(false);
@@ -205,6 +207,7 @@ export function VideoCard({
             <span className="channelLink muted">{channelLabel}</span>
           )}
           <p>{video.description || "No description provided."}</p>
+          {captionSnippet ? <p className="captionSnippet"><span className="srOnly">Matching caption: </span>{captionSnippet}</p> : null}
           <p className="metaLine">{videoMeta(video)}</p>
           {feedRank ? <p className="metaLine">Rank #{feedRank} / {feedReason}</p> : null}
         </div>

@@ -79,7 +79,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
           </div>
           <div className="videoGrid" role="list">
             {videos.map((video, index) => (
-              <VideoCard key={video.id} video={video} surface="search" position={index} requestId={requestId} />
+              <VideoCard key={video.id} video={video} captionSnippet={video.caption_snippet} surface="search" position={index} requestId={requestId} />
             ))}
           </div>
         </>

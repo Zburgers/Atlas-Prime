@@ -21,13 +21,14 @@ def _thumbnail_url_for(video: object) -> str | None:
     return f"/videos/{video.id}/thumbnail"
 
 
-def _video_list_item(video: object) -> VideoListItemResponse:
+def _video_list_item(video: object, caption_snippet: str | None = None) -> VideoListItemResponse:
     channel = getattr(video, "channel", None)
     return VideoListItemResponse.model_validate(video).model_copy(
         update={
             "thumbnail_url": _thumbnail_url_for(video),
             "channel_handle": getattr(channel, "handle", None),
             "channel_display_name": getattr(channel, "display_name", None),
+            "caption_snippet": caption_snippet,
         }
     )
 
@@ -43,7 +44,7 @@ async def search_videos(
     items, total = await search_service.search_public_videos(session, normalized_query, page, page_size)
     return SearchResponse(
         query=normalized_query,
-        items=[_video_list_item(video) for video in items],
+        items=[_video_list_item(item.video, item.caption_snippet) for item in items],
         total=total,
         page=page,
         page_size=page_size,

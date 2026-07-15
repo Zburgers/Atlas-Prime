@@ -184,7 +184,10 @@ def test_meilisearch_results_are_rechecked_against_public_video_state(monkeypatc
         def json(self) -> dict[str, object]:
             return {
                 "estimatedTotalHits": 2,
-                "hits": [{"id": str(stale_id)}, {"id": str(public_id)}],
+                "hits": [
+                    {"id": str(stale_id)},
+                    {"id": str(public_id), "caption_text": "A transcript atlas match."},
+                ],
             }
 
     class FakeClient:
@@ -214,7 +217,8 @@ def test_meilisearch_results_are_rechecked_against_public_video_state(monkeypatc
 
     videos, total = asyncio.run(search_service._search_public_videos_meilisearch(FakeSession(), "atlas", 1, 20))
 
-    assert videos == [public_video]
+    assert [item.video for item in videos] == [public_video]
+    assert videos[0].caption_snippet == "A transcript atlas match."
     assert total == 2
 
 
@@ -223,10 +227,10 @@ def test_meilisearch_failure_falls_back_to_postgres(monkeypatch: pytest.MonkeyPa
         def get_bind(self) -> object:
             return type("Bind", (), {"dialect": type("Dialect", (), {"name": "postgresql"})()})()
 
-    async def unavailable(*_args: object) -> tuple[list[Video], int]:
+    async def unavailable(*_args: object) -> tuple[list[search_service.SearchResult], int]:
         raise httpx.ConnectError("unavailable")
 
-    async def fallback(*_args: object) -> tuple[list[Video], int]:
+    async def fallback(*_args: object) -> tuple[list[search_service.SearchResult], int]:
         return [], 7
 
     monkeypatch.setenv("ATLAS_SEARCH_BACKEND", "meilisearch")

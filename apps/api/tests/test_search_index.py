@@ -83,6 +83,7 @@ def test_rebuild_replaces_documents_with_public_video_corpus(monkeypatch) -> Non
         title="Atlas Search",
         description=None,
         channel=SimpleNamespace(display_name="Atlas", handle="@atlas"),
+        text_tracks=[],
         privacy="public",
         view_count=5,
         like_count=2,
@@ -102,6 +103,7 @@ def test_rebuild_replaces_documents_with_public_video_corpus(monkeypatch) -> Non
                 "id": "video-id",
                 "title": "Atlas Search",
                 "description": "",
+                "caption_text": "",
                 "channel_display_name": "Atlas",
                 "channel_handle": "@atlas",
                 "privacy": "public",
@@ -111,3 +113,9 @@ def test_rebuild_replaces_documents_with_public_video_corpus(monkeypatch) -> Non
             }
         ],
     ) in fake_client.requests
+
+
+def test_webvtt_text_extraction_omits_timestamps_and_markup() -> None:
+    assert search_index._webvtt_to_text(
+        b"WEBVTT\n\n1\n00:00.000 --> 00:02.000\nHello <i>Atlas</i> &amp; friends\n\n00:02.000 --> 00:03.000\nSearch captions\n"
+    ) == "Hello Atlas & friends Search captions"
