@@ -243,6 +243,9 @@ export type AdminOps = {
   };
 };
 
+export type AdminRecommendationRequest = { request_id: string; surface: string; algorithm_version: string; total_results: number; created_at: string };
+export type AdminRecommendationDebug = { request_id: string; surface: string; algorithm_version: string; page: number; page_size: number; total_results: number; results: Array<{ video_id: string; rank: number; score: number; reason: string; impression_count: number; playback_event_count: number; view_count: number }> };
+
 export type AdminVideoDebug = {
   video: Video;
   renditions: PlaybackResponse["renditions"];

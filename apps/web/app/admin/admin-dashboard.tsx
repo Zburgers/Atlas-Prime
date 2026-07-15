@@ -3,7 +3,7 @@
 import { Show, SignInButton, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, apiRequest, type AdminJob, type AdminOps, type AdminVideoDebug, type Video } from "../components/video-api";
+import { ApiError, apiRequest, type AdminJob, type AdminOps, type AdminRecommendationDebug, type AdminRecommendationRequest, type AdminVideoDebug, type Video } from "../components/video-api";
 import { formatDate, StatusPill } from "../components/status-ui";
 
 export function AdminDashboard() {
@@ -12,6 +12,8 @@ export function AdminDashboard() {
   const [jobs, setJobs] = useState<AdminJob[]>([]);
   const [videos, setVideos] = useState<Video[]>([]);
   const [debug, setDebug] = useState<AdminVideoDebug | null>(null);
+  const [recommendations, setRecommendations] = useState<AdminRecommendationRequest[]>([]);
+  const [recommendationDebug, setRecommendationDebug] = useState<AdminRecommendationDebug | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,20 +30,23 @@ export function AdminDashboard() {
     }
     try {
       const token = await getToken();
-      const [opsResponse, jobsResponse, videosResponse] = await Promise.all([
+      const [opsResponse, jobsResponse, videosResponse, recommendationResponse] = await Promise.all([
         apiRequest<AdminOps>("/admin/ops", { token }),
         apiRequest<AdminJob[]>("/admin/jobs", { token }),
         apiRequest<Video[]>("/admin/videos", { token }),
+        apiRequest<{ items: AdminRecommendationRequest[] }>("/admin/recommendations", { token }),
       ]);
       setOps(opsResponse);
       setJobs(jobsResponse);
       setVideos(videosResponse);
+      setRecommendations(recommendationResponse.items);
       const firstDebugVideo = videosResponse.find((video) => video.status === "failed") ?? videosResponse[0];
       if (firstDebugVideo) {
         setDebug(await apiRequest<AdminVideoDebug>(`/admin/videos/${firstDebugVideo.id}/debug`, { token }));
       } else {
         setDebug(null);
       }
+      if (recommendationResponse.items[0]) setRecommendationDebug(await apiRequest<AdminRecommendationDebug>(`/admin/recommendations/${recommendationResponse.items[0].request_id}`, { token }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load admin data.");
       setDebug(null);
@@ -159,6 +164,11 @@ export function AdminDashboard() {
       </div>
 
       {debug ? <DebugPanel debug={debug} /> : null}
+      <section className="surface compactSurface" aria-labelledby="recommendations-heading">
+        <p className="eyebrow">Discovery</p><h2 id="recommendations-heading">Recommendation debug</h2>
+        {recommendations.length === 0 ? <p className="muted">No persisted feed requests.</p> : <div className="adminList" role="list">{recommendations.map((item) => <article className="adminListItem" key={item.request_id} role="listitem"><div><h3>{item.surface} / {item.algorithm_version}</h3><p className="metaLine">{item.request_id} / {item.total_results} results</p></div><button className="secondaryButton" type="button" onClick={async () => { const token = await getToken(); setRecommendationDebug(await apiRequest<AdminRecommendationDebug>(`/admin/recommendations/${item.request_id}`, { token })); }}>Inspect</button></article>)}</div>}
+        {recommendationDebug ? <DebugList title="Selected results" items={recommendationDebug.results.map((item) => `#${item.rank} / ${item.reason} / impressions ${item.impression_count} / playback ${item.playback_event_count} / views ${item.view_count}`)} empty="No ranked results." /> : null}
+      </section>
     </div>
   );
 }
