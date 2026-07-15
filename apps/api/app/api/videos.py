@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Path, Query, Request, Response, UploadFile, status
+from fastapi.responses import RedirectResponse
 
 from app.db.models import PlaybackEvent
 from app.api.deps import (
@@ -37,12 +39,14 @@ from app.schemas.videos import (
     VideoUpdate,
 )
 from app.services import analytics as analytics_service
+from app.services import playback_delivery
 from app.services import feed as feed_service
 from app.services import reactions as reactions_service
 from app.services import uploads as upload_service
 from app.services import videos as video_service
 from app.services import subscriptions as subscription_service
 from app.services.storage import HlsObjectNotFoundError
+from app.core import config
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -246,6 +250,43 @@ async def hls_asset(
     if hls_object.content_length is not None:
         headers["Content-Length"] = str(hls_object.content_length)
     return Response(content=hls_object.body, media_type=media_type, headers=headers)
+
+
+@router.get("/videos/{video_id}/delivery/{asset_path:path}")
+async def signed_delivery_asset(
+    video_id: UUID,
+    asset_path: Annotated[str, Path(min_length=1)],
+    token: Annotated[str, Query(min_length=1)],
+    session: SessionDep,
+    storage: ProcessedHlsStorageDep,
+) -> Response:
+    if not config.minio_public_endpoint():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Signed playback delivery is not configured"},
+        )
+    video = await video_service.video_with_renditions_for_signed_delivery(session, video_id)
+    try:
+        claims = playback_delivery.verify_token(token, video_id=str(video.id), token_version=video.playback_token_version)
+    except playback_delivery.PlaybackTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Unauthorized", "message": "Invalid playback token"},
+        ) from None
+
+    storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
+    if media_type == PLAYLIST_MEDIA_TYPE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "Conflict", "message": "Signed playlist delivery is not configured"},
+        )
+
+    expires_in = max(1, claims.expires_at - int(time.time()))
+    return RedirectResponse(
+        url=storage.presign_hls_object(key=storage_key, expires_in=expires_in),
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        headers={"Cache-Control": cache_control},
+    )
 
 
 @router.post("/videos/{video_id}/events", response_model=PlaybackEventResponse, status_code=status.HTTP_201_CREATED)

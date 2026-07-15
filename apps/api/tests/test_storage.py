@@ -65,17 +65,23 @@ def test_processed_hls_storage_deletes_only_the_video_prefix(monkeypatch):
 
 
 def test_processed_hls_storage_presigns_processed_object(monkeypatch):
-    calls = {}
+    calls = []
 
     class FakeClient:
         def generate_presigned_url(self, operation, *, Params, ExpiresIn):
-            calls.update(operation=operation, params=Params, expires_in=ExpiresIn)
+            calls.append({"operation": operation, "params": Params, "expires_in": ExpiresIn})
             return "https://media.example/atlas-processed/processed/video/hls/segment.ts?signature=ok"
 
     monkeypatch.setenv("MINIO_BUCKET_PROCESSED", "processed-test")
-    monkeypatch.setattr("app.services.storage.boto3.client", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    client_calls = []
+    monkeypatch.setattr(
+        "app.services.storage.boto3.client",
+        lambda *args, **kwargs: client_calls.append(kwargs["endpoint_url"]) or FakeClient(),
+    )
 
     url = MinioProcessedHlsStorage().presign_hls_object(key="processed/video/hls/segment.ts", expires_in=60)
 
     assert url.endswith("signature=ok")
-    assert calls == {"operation": "get_object", "params": {"Bucket": "processed-test", "Key": "processed/video/hls/segment.ts"}, "expires_in": 60}
+    assert client_calls == ["http://minio:9000", "https://media.example"]
+    assert calls == [{"operation": "get_object", "params": {"Bucket": "processed-test", "Key": "processed/video/hls/segment.ts"}, "expires_in": 60}]

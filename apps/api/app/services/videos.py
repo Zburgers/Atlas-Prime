@@ -185,3 +185,15 @@ async def video_with_renditions_for_playback(session: AsyncSession, user: User |
     }:
         raise _forbidden()
     return video
+
+
+async def video_with_renditions_for_signed_delivery(session: AsyncSession, video_id: UUID) -> Video:
+    result = await session.execute(
+        select(Video).options(selectinload(Video.renditions)).where(Video.id == video_id)
+    )
+    video = result.scalar_one_or_none()
+    if video is None or video.moderation_status == ModerationStatus.REMOVED.value:
+        raise _not_found()
+    if video.status != VideoStatus.READY.value:
+        raise _conflict("Video is not ready for playback", {"current_status": video.status})
+    return video

@@ -129,6 +129,9 @@ class FakeProcessedHlsStorage:
             etag='"test-etag"',
         )
 
+    def presign_hls_object(self, *, key: str, expires_in: int) -> str:
+        return self.presigned_url
+
 
 def _install_upload_fakes(client: TestClient) -> tuple[FakeOriginalStorage, FakeProcessingQueue]:
     storage = FakeOriginalStorage()
@@ -478,6 +481,25 @@ def test_hls_segment_uses_immutable_cache_headers(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("video/mp2t")
     assert response.headers["cache-control"] == "private, max-age=31536000, immutable"
     assert storage.requests == [segment_key]
+
+
+def test_signed_delivery_redirects_segment_bytes_to_minio(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Redirect segment"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+    token = issue_token(video_id=video_id, token_version=1, viewer_id="owner", ttl=__import__("datetime").timedelta(seconds=60))
+
+    response = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={token}", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == storage.presigned_url
 
 
 def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient, caplog) -> None:

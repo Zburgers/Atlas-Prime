@@ -106,14 +106,9 @@ class MinioOriginalStorage(OriginalStorage):
 class MinioProcessedHlsStorage(ProcessedHlsStorage):
     def __init__(self) -> None:
         self._bucket = config.processed_bucket()
-        self._client = boto3.client(
-            "s3",
-            endpoint_url=config.minio_endpoint(),
-            aws_access_key_id=config.minio_access_key(),
-            aws_secret_access_key=config.minio_secret_key(),
-            region_name=config.minio_region(),
-            config=Config(signature_version="s3v4"),
-        )
+        self._client = _s3_client(config.minio_endpoint())
+        public_endpoint = config.minio_public_endpoint()
+        self._presign_client = self._client if not public_endpoint else _s3_client(public_endpoint)
 
     def get_hls_object(self, *, key: str) -> HlsObject:
         try:
@@ -166,7 +161,18 @@ class MinioProcessedHlsStorage(ProcessedHlsStorage):
             continuation_token = response.get("NextContinuationToken")
 
     def presign_hls_object(self, *, key: str, expires_in: int) -> str:
-        return self._client.generate_presigned_url("get_object", Params={"Bucket": self._bucket, "Key": key}, ExpiresIn=expires_in)
+        return self._presign_client.generate_presigned_url("get_object", Params={"Bucket": self._bucket, "Key": key}, ExpiresIn=expires_in)
+
+
+def _s3_client(endpoint_url: str) -> object:
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=config.minio_access_key(),
+        aws_secret_access_key=config.minio_secret_key(),
+        region_name=config.minio_region(),
+        config=Config(signature_version="s3v4"),
+    )
 
 
 def original_storage_key(video_id: UUID, extension: str) -> str:
