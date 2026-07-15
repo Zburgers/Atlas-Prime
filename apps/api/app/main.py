@@ -5,6 +5,7 @@ from typing import Any
 
 import asyncpg
 import boto3
+import httpx
 from botocore.config import Config
 from fastapi import FastAPI, Request
 from redis.asyncio import from_url as redis_from_url
@@ -23,6 +24,7 @@ from app.api.studio_analytics import admin_router as analytics_admin_router
 from app.api.studio_analytics import studio_router as studio_analytics_router
 from app.api.thumbnails import router as thumbnails_router
 from app.api.videos import router as videos_router
+from app.core import config
 from app.domain.status import CANONICAL_VIDEO_STATUS_VALUES, PRIVACY_VALUES
 
 STATUS_VALUES = CANONICAL_VIDEO_STATUS_VALUES
@@ -99,6 +101,16 @@ def _check_minio() -> dict[str, Any]:
     return {"ok": required.issubset(buckets), "buckets": sorted(required)}
 
 
+async def _check_meilisearch() -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            response = await client.get(f"{config.meilisearch_url()}/health")
+            response.raise_for_status()
+            return {"ok": response.json().get("status") == "available"}
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "error": exc.__class__.__name__}
+
+
 @app.get("/healthz/live")
 async def live() -> dict[str, str]:
     return {"status": "ok", "service": "api"}
@@ -118,6 +130,8 @@ async def healthz() -> dict[str, Any]:
         "redis": await _check_redis(),
         "minio": _check_minio(),
     }
+    if config.search_backend() == "meilisearch":
+        checks["search"] = await _check_meilisearch()
     status = "ok" if all(check["ok"] for check in checks.values()) else "degraded"
     return {"status": status, "service": "api", "dependencies": checks}
 

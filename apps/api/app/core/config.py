@@ -53,6 +53,18 @@ def minio_public_endpoint() -> str:
     return env("MINIO_PUBLIC_ENDPOINT")
 
 
+def search_backend() -> str:
+    return env("ATLAS_SEARCH_BACKEND", "postgres")
+
+
+def meilisearch_url() -> str:
+    return env("MEILISEARCH_URL", "http://search:7700").rstrip("/")
+
+
+def meilisearch_master_key() -> str:
+    return env("MEILISEARCH_MASTER_KEY")
+
+
 def upload_max_bytes() -> int:
     raw = env("ATLAS_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024))
     try:

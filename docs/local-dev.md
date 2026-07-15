@@ -26,6 +26,7 @@ Services:
 | API | http://localhost:8000 |
 | API docs | http://localhost:8000/docs |
 | MinIO console | http://localhost:9001 |
+| Meilisearch | http://localhost:7700 |
 | PostgreSQL | localhost:15432 |
 | Redis | localhost:16379 |
 
@@ -35,6 +36,8 @@ MinIO local buckets are bootstrapped as private buckets:
 - `atlas-processed`
 
 Signed playback uses MinIO's explicit server CORS origins from `ATLAS_MEDIA_CORS_ALLOWED_ORIGINS` (default: `http://localhost:3001`). Set it to the exact browser origin or origins for each deployment. The bucket policies remain private, so browser access still requires a signed object URL; the CORS setting does not make either bucket public.
+
+Phase 5 runs Meilisearch as the dedicated search service. Compose keeps it internal to API traffic except for the local port above. Set `MEILISEARCH_MASTER_KEY` to a 16+-character secret and `MEILI_ENV=production` outside local development. `ATLAS_SEARCH_BACKEND=meilisearch` makes the API dependency health endpoint report its availability; search reads remain on the PostgreSQL implementation until the indexing worker is delivered.
 
 ## Standard Commands
 

@@ -28,6 +28,22 @@ services:
       timeout: 3s
       retries: 20
 
+  search:
+    image: getmeili/meilisearch:v1.37
+    environment:
+      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch-data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7700/health | grep -q '\"status\":\"available\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   minio:
     image: minio/minio:latest
     command: ["server", "/data", "--console-address", ":9001"]
@@ -86,6 +102,9 @@ services:
       ATLAS_PLAYBACK_DELIVERY_MODE: ${ATLAS_PLAYBACK_DELIVERY_MODE:-proxy}
       ATLAS_PLAYBACK_TOKEN_SECRET: ${ATLAS_PLAYBACK_TOKEN_SECRET:-}
       ATLAS_PLAYBACK_TOKEN_TTL_SECONDS: ${ATLAS_PLAYBACK_TOKEN_TTL_SECONDS:-300}
+      ATLAS_SEARCH_BACKEND: ${ATLAS_SEARCH_BACKEND:-meilisearch}
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://search:7700}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
       ATLAS_UPLOAD_MAX_BYTES: ${ATLAS_UPLOAD_MAX_BYTES:-104857600}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
@@ -100,6 +119,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      search:
         condition: service_healthy
       minio-bootstrap:
         condition: service_completed_successfully
@@ -214,3 +235,4 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  meilisearch-data:
