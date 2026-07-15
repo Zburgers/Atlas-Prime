@@ -827,6 +827,48 @@ Acceptance for D2:
 - Worker output layout remains unchanged.
 - API can revoke or rotate playback tokens.
 
+#### Delivery D2 Implementation Contract
+
+Use signed redirect delivery, not public processed buckets and not a direct replacement of `master_playlist_url` with a MinIO URL:
+
+```txt
+GET /videos/{id}/playback (authenticated when required)
+  -> validates normal video access
+  -> creates short-lived, versioned playback token
+  -> returns API-owned delivery-manifest URL with token
+
+GET /videos/{id}/delivery/{asset_path}?token=...
+  -> validates video id, expiry, token version, and safe HLS path
+  -> for .m3u8: reads and rewrites only playlist URI lines to the same delivery route
+  -> for segments: returns 302 to a short-lived MinIO/CDN presigned object URL
+```
+
+This keeps playlist requests under API authorization while moving segment bytes off FastAPI. It preserves the worker layout under `processed/{video_id}/hls/` and works with the existing nested relative HLS playlists.
+
+Required configuration:
+
+```txt
+ATLAS_PLAYBACK_DELIVERY_MODE=proxy|signed-redirect     # default proxy
+ATLAS_PLAYBACK_TOKEN_SECRET=<high-entropy deployment secret>
+ATLAS_PLAYBACK_TOKEN_TTL_SECONDS=300                  # bounded 60-900 seconds
+MINIO_PUBLIC_ENDPOINT=https://media.example.com        # browser-routable origin, not the Docker-only endpoint
+```
+
+Token rules:
+
+- Token claims include `video_id`, optional viewer id, expiry, nonce/version, and delivery mode.
+- Store `playback_token_version` on `videos`; owner/admin rotation increments it and invalidates manifest access immediately.
+- Segment presigned URLs must not outlive the remaining token lifetime. Already-issued object URLs remain usable only until that short expiry; immediate revocation applies to subsequent manifest and segment requests.
+- Keep buckets private. Object storage must allow only signed requests and must configure CORS for the web origin, `GET`/`HEAD`, and the HLS response headers required by the player.
+
+Required validation:
+
+- Owner obtains private manifest and receives segment redirects; another user cannot mint or use a different-user private token.
+- Expired and rotated tokens return `401`/`403` before object redirect.
+- Public and unlisted playback match current API access behavior.
+- Manifest rewriting preserves master and rendition URI ordering; segment response is a redirect, not an API byte response.
+- Verify browser CORS against the configured public media origin in a production-like environment.
+
 ## 11. Search, Recommendations, And Analytics
 
 ### 11.1 Search Phases
