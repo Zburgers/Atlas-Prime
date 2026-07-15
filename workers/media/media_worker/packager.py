@@ -46,6 +46,9 @@ class PackagedRendition:
     width: int
     height: int
     target_bitrate: int
+    video_codec: str
+    segment_count: int
+    output_size_bytes: int
     playlist_storage_key: str
 
 
@@ -223,12 +226,17 @@ def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: Med
             ]
         )
         _run(command)
+        segment_count = len(list(rendition_dir.glob("segment_*.ts")))
+        output_size_bytes = sum(path.stat().st_size for path in rendition_dir.iterdir() if path.is_file())
         renditions.append(
             PackagedRendition(
                 label=plan.label,
                 width=plan.width,
                 height=plan.height,
                 target_bitrate=plan.target_bitrate,
+                video_codec="h264",
+                segment_count=segment_count,
+                output_size_bytes=output_size_bytes,
                 playlist_storage_key=f"processed/{video_id}/hls/{plan.label}/playlist.m3u8",
             )
         )

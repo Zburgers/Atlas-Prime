@@ -142,6 +142,9 @@ class VideoRendition(Base):
     width: Mapped[int] = mapped_column(nullable=False)
     height: Mapped[int] = mapped_column(nullable=False)
     target_bitrate: Mapped[int] = mapped_column(nullable=False)
+    video_codec: Mapped[str | None] = mapped_column(Text)
+    segment_count: Mapped[int | None]
+    output_size_bytes: Mapped[int | None]
     playlist_storage_key: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, default=RenditionStatus.PENDING.value, server_default=RenditionStatus.PENDING.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

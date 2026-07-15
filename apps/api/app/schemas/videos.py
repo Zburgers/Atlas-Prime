@@ -184,6 +184,9 @@ class RenditionResponse(BaseModel):
     width: int
     height: int
     target_bitrate: int
+    video_codec: str | None
+    segment_count: int | None
+    output_size_bytes: int | None
     playlist_storage_key: str | None
     status: RenditionStatus
     created_at: datetime

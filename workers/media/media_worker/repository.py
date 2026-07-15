@@ -96,9 +96,9 @@ class MediaRepository:
                     conn.execute(
                         """
                         insert into video_renditions
-                            (id, video_id, label, width, height, target_bitrate, playlist_storage_key, status, created_at)
+                            (id, video_id, label, width, height, target_bitrate, video_codec, segment_count, output_size_bytes, playlist_storage_key, status, created_at)
                         values
-                            (%s, %s, %s, %s, %s, %s, %s, 'ready', now())
+                            (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ready', now())
                         """,
                         (
                             str(uuid4()),
@@ -107,6 +107,9 @@ class MediaRepository:
                             rendition.width,
                             rendition.height,
                             rendition.target_bitrate,
+                            rendition.video_codec,
+                            rendition.segment_count,
+                            rendition.output_size_bytes,
                             rendition.playlist_storage_key,
                         ),
                     )

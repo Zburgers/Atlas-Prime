@@ -39,9 +39,12 @@ def test_mark_succeeded_supports_the_configured_mapping_row_factory(monkeypatch)
             PackagedRendition(
                 label="360p",
                 width=640,
-                height=360,
-                target_bitrate=800000,
-                playlist_storage_key="processed/video-id/hls/360p/playlist.m3u8",
+                    height=360,
+                    target_bitrate=800000,
+                    video_codec="h264",
+                    segment_count=2,
+                    output_size_bytes=12345,
+                    playlist_storage_key="processed/video-id/hls/360p/playlist.m3u8",
             )
         ],
     )
