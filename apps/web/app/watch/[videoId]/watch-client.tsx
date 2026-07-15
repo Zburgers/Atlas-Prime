@@ -2,6 +2,7 @@
 
 import { useAuth } from "@clerk/nextjs";
 import Hls from "hls.js";
+import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { StatusPanel } from "../../components/status-ui";
@@ -11,6 +12,7 @@ import {
   backendAssetUrl,
   type Comment,
   type CommentListResponse,
+  type FeedResponse,
   type PlaybackResponse,
   type ProcessingStatus,
   type Video,
@@ -33,6 +35,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
   const [commentBody, setCommentBody] = useState("");
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
+  const [related, setRelated] = useState<FeedResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [engagementBusy, setEngagementBusy] = useState(false);
   const [commentsBusy, setCommentsBusy] = useState(false);
@@ -220,6 +223,11 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
         }
       } else {
         setEngagement(null);
+      }
+      try {
+        setRelated(await apiRequest<FeedResponse>(`/videos/${videoId}/related`, { token }));
+      } catch {
+        setRelated(null);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load this video.");
@@ -432,8 +440,32 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
             </Link>
           </section>
         ) : null}
+        {related?.items.length ? <RelatedVideos items={related.items} /> : null}
       </aside>
     </div>
+  );
+}
+
+function RelatedVideos({ items }: { items: FeedResponse["items"] }) {
+  return (
+    <section className="surface compactSurface relatedVideos" aria-labelledby="related-heading">
+      <p className="eyebrow">Watch next</p>
+      <h2 id="related-heading">Related videos</h2>
+      <div className="relatedVideoList">
+        {items.map((item) => (
+          <article className="relatedVideo" key={item.video.id}>
+            <Link className="relatedThumbnail" href={`/watch/${item.video.id}?request_id=${encodeURIComponent(item.request_id)}`} aria-label={`Open ${item.video.title}`}>
+              {item.video.thumbnail_url ? <Image alt="" fill sizes="160px" src={backendAssetUrl(item.video.thumbnail_url)} unoptimized /> : <span />}
+            </Link>
+            <div>
+              <h3><Link href={`/watch/${item.video.id}?request_id=${encodeURIComponent(item.request_id)}`}>{item.video.title}</Link></h3>
+              <p className="metaLine">{item.video.channel_display_name ?? "Channel pending"}</p>
+              <p className="metaLine">{formatViewCount(item.video.view_count)} / {item.reason}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

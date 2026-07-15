@@ -11,6 +11,7 @@ export function AppHeader() {
       </Link>
       <nav aria-label="Primary navigation">
         <Link href="/">Home</Link>
+        <Link href="/trending">Trending</Link>
         <Link href="/search">Search</Link>
         <Link href="/subscriptions">Subscriptions</Link>
         <Link href="/library">Library</Link>

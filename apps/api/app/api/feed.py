@@ -66,6 +66,28 @@ async def subscriptions_feed(session: SessionDep, user: CurrentUserDep) -> Video
     return VideoListResponse(items=items, total=len(items), page=1, page_size=len(items))
 
 
+@router.get("/trending", response_model=FeedResponse)
+async def trending_feed(
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    request_id: Annotated[str | None, Query(max_length=120)] = None,
+) -> FeedResponse:
+    resolved_request_id, ranked_videos, total = await feed_service.trending_feed(
+        session, user=user, page=page, page_size=page_size, request_id=request_id
+    )
+    return FeedResponse(
+        request_id=resolved_request_id,
+        surface=feed_service.TRENDING_SURFACE,
+        algorithm_version=feed_service.TRENDING_ALGORITHM_VERSION,
+        items=[FeedItemResponse(request_id=resolved_request_id, surface=feed_service.TRENDING_SURFACE, rank=item.rank, score=item.score, reason=item.reason, video=_video_list_item(item.video)) for item in ranked_videos],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
 @router.get("/requests/{request_id}/debug", response_model=RecommendationDebugResponse)
 async def feed_request_debug(
     request_id: str,

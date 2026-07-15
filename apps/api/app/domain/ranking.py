@@ -4,6 +4,8 @@ import math
 from datetime import datetime, timezone
 
 HOME_FEED_ALGORITHM_VERSION = "home-v1"
+RELATED_ALGORITHM_VERSION = "related-v1"
+TRENDING_ALGORITHM_VERSION = "trending-v1"
 
 
 def home_feed_score(*, view_count: int, like_count: int, created_at: datetime, now: datetime | None = None) -> float:
@@ -23,3 +25,19 @@ def home_feed_reason(*, view_count: int, like_count: int) -> str:
     if view_count > 0:
         return "fresh public video with views"
     return "fresh public video"
+
+
+def trending_feed_score(*, view_count: int, like_count: int, created_at: datetime, now: datetime | None = None) -> float:
+    return home_feed_score(view_count=view_count, like_count=like_count, created_at=created_at, now=now)
+
+
+def related_feed_score(
+    *,
+    view_count: int,
+    like_count: int,
+    created_at: datetime,
+    same_channel: bool,
+    now: datetime | None = None,
+) -> float:
+    channel_match = 10_000.0 if same_channel else 0.0
+    return round(channel_match + home_feed_score(view_count=view_count, like_count=like_count, created_at=created_at, now=now), 6)

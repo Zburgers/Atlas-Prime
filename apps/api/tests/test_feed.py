@@ -151,3 +151,47 @@ def test_home_feed_ranking_function_is_deterministic() -> None:
 
     assert first == second
     assert first > weaker
+
+
+def test_trending_feed_ranks_public_ready_videos_and_replays_request_results(client: TestClient) -> None:
+    now = datetime.now(timezone.utc)
+    popular = client.post("/videos", headers=_headers("popular-owner"), json={"title": "Popular this week"}).json()
+    recent = client.post("/videos", headers=_headers("recent-owner"), json={"title": "Recent discovery"}).json()
+    private = client.post("/videos", headers=_headers("private-owner"), json={"title": "Private viral"}).json()
+    _mark_video_ready(client, video_id=popular["id"], created_at=now - timedelta(days=2), views=300, likes=20)
+    _mark_video_ready(client, video_id=recent["id"], created_at=now - timedelta(hours=1), views=4, likes=0)
+    _mark_video_ready(client, video_id=private["id"], privacy=VideoPrivacy.PRIVATE, views=999, likes=999)
+
+    response = client.get("/feed/trending?request_id=trending-request-1", headers=_headers("viewer"))
+    replay = client.get("/feed/trending?request_id=trending-request-1", headers=_headers("viewer"))
+
+    assert response.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json() == response.json()
+    body = response.json()
+    assert body["surface"] == "trending"
+    assert body["algorithm_version"] == "trending-v1"
+    assert [item["video"]["title"] for item in body["items"]] == ["Popular this week", "Recent discovery"]
+    assert all(item["reason"] == "trending public video" for item in body["items"])
+
+
+def test_related_videos_prioritize_same_channel_and_exclude_current_and_nonpublic(client: TestClient) -> None:
+    current = client.post("/videos", headers=_headers("creator"), json={"title": "Current video"}).json()
+    same_channel = client.post("/videos", headers=_headers("creator"), json={"title": "Same channel next"}).json()
+    other_channel = client.post("/videos", headers=_headers("other"), json={"title": "Other channel next"}).json()
+    unlisted = client.post("/videos", headers=_headers("creator"), json={"title": "Unlisted video"}).json()
+    _mark_video_ready(client, video_id=current["id"], views=1)
+    _mark_video_ready(client, video_id=same_channel["id"], views=1)
+    _mark_video_ready(client, video_id=other_channel["id"], views=200, likes=10)
+    _mark_video_ready(client, video_id=unlisted["id"], privacy=VideoPrivacy.UNLISTED, views=999, likes=999)
+
+    response = client.get(f"/videos/{current['id']}/related?request_id=related-request-1", headers=_headers("viewer"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["surface"] == "related"
+    assert body["algorithm_version"] == "related-v1"
+    assert [item["video"]["title"] for item in body["items"]] == ["Same channel next", "Other channel next"]
+    assert all(item["video"]["id"] != current["id"] for item in body["items"])
+    assert all(item["video"]["privacy"] == "public" for item in body["items"])
+    assert body["items"][0]["reason"] == "same channel public video"

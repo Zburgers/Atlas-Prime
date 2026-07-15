@@ -16,6 +16,7 @@ from app.api.deps import (
     SessionDep,
 )
 from app.domain.status import VideoStatus
+from app.schemas.feed import FeedItemResponse, FeedResponse
 from app.schemas.videos import (
     PlaybackEventCreate,
     PlaybackEventResponse,
@@ -36,6 +37,7 @@ from app.schemas.videos import (
     VideoUpdate,
 )
 from app.services import analytics as analytics_service
+from app.services import feed as feed_service
 from app.services import reactions as reactions_service
 from app.services import uploads as upload_service
 from app.services import videos as video_service
@@ -100,6 +102,29 @@ async def list_videos(
 @router.get("/videos/{video_id}", response_model=VideoResponse)
 async def get_video(video_id: UUID, session: SessionDep, user: OptionalCurrentUserDep) -> object:
     return await video_service.get_video_for_read(session, user, video_id)
+
+
+@router.get("/videos/{video_id}/related", response_model=FeedResponse)
+async def related_videos(
+    video_id: UUID,
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 10,
+    request_id: Annotated[str | None, Query(max_length=120)] = None,
+) -> FeedResponse:
+    resolved_request_id, ranked_videos, total = await feed_service.related_videos(
+        session, user=user, video_id=video_id, page=page, page_size=page_size, request_id=request_id
+    )
+    return FeedResponse(
+        request_id=resolved_request_id,
+        surface=feed_service.RELATED_SURFACE,
+        algorithm_version=feed_service.RELATED_ALGORITHM_VERSION,
+        items=[FeedItemResponse(request_id=resolved_request_id, surface=feed_service.RELATED_SURFACE, rank=item.rank, score=item.score, reason=item.reason, video=video_list_item(item.video)) for item in ranked_videos],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.patch("/videos/{video_id}", response_model=VideoResponse)
