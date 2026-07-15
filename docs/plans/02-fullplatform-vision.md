@@ -1143,6 +1143,19 @@ Acceptance:
 - Other user cannot mutate or play private video.
 - HLS assets are fetched only through API-owned paths.
 
+### Cross-Cutting Frontend Verification
+
+Goal: keep the product shell polished and accessible as every delivery phase adds new workflows.
+
+Required evidence:
+
+- `make lint`, `make test`, and `make smoke` remain green.
+- Review changed public routes at 320, 375, 414, 768, and 1440px.
+- Verify keyboard access, focus visibility, status/error announcements, and reduced-motion behavior for changed interactive controls.
+- Keep the verification record in `docs/qa/frontend-accessibility.md` current.
+
+Current status: shared shell and public search verification delivered. Signed-in creator/admin workflows remain a release check whenever Clerk-backed UI changes.
+
 ### Phase 1 - Public Platform Basics
 
 Goal: make Atlas Prime feel like a small public VOD site.

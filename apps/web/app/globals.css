@@ -837,6 +837,29 @@ dd {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (min-width: 821px) {
+  .appHeader {
+    grid-template-columns: auto minmax(220px, 1fr) auto;
+  }
+
+  .appHeader nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 820px) {
   .appHeader,
   .pageGrid,

@@ -63,7 +63,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
         </div>
       ) : null}
       {loading ? <SearchSkeleton /> : null}
-      {error ? <p className="errorText">{error}</p> : null}
+      {error ? <p className="errorText" role="alert">{error}</p> : null}
       {!loading && !error && normalizedQuery && videos.length === 0 ? (
         <div className="emptyState">
           <h2>No results</h2>
@@ -72,7 +72,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
       ) : null}
       {!loading && !error && videos.length > 0 ? (
         <>
-          <div className="toolbar">
+          <div className="toolbar" aria-live="polite" role="status">
             <span>
               {total.toLocaleString()} result{total === 1 ? "" : "s"}
             </span>
@@ -90,7 +90,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
 
 function SearchSkeleton() {
   return (
-    <div className="skeletonStack" aria-label="Loading search results">
+    <div className="skeletonStack" aria-label="Loading search results" aria-live="polite" role="status">
       <span />
       <span />
       <span />
