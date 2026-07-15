@@ -24,6 +24,15 @@ class FakeConnection:
         return FakeCursor()
 
 
+def test_mark_started_claims_only_a_queued_job(monkeypatch) -> None:
+    connection = FakeConnection()
+    repository = MediaRepository()
+    monkeypatch.setattr(repository, "_connect", lambda: _connection_context(connection))
+
+    assert repository.mark_started(video_id="video-id", job_id="job-id", worker_id="worker") is True
+    assert any("job.status = 'queued'" in query for query, _ in connection.calls)
+
+
 def test_mark_succeeded_supports_the_configured_mapping_row_factory(monkeypatch) -> None:
     connection = FakeConnection()
     repository = MediaRepository()

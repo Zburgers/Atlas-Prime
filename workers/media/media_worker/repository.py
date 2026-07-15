@@ -21,22 +21,30 @@ class MediaRepository:
     def __init__(self) -> None:
         self._database_url = config.database_url()
 
-    def mark_started(self, *, video_id: str, job_id: str, worker_id: str) -> None:
+    def mark_started(self, *, video_id: str, job_id: str, worker_id: str) -> bool:
         with self._connect() as conn:
             with conn.transaction():
-                conn.execute(
+                claimed = conn.execute(
                     """
-                    update video_processing_jobs
+                    update video_processing_jobs as job
                     set status = 'running',
-                        attempt_count = attempt_count + 1,
+                        attempt_count = job.attempt_count + 1,
                         worker_id = %s,
                         started_at = now(),
                         error_code = null,
                         error_message = null
-                    where id = %s and video_id = %s
+                    from videos
+                    where job.id = %s
+                      and job.video_id = %s
+                      and job.status = 'queued'
+                      and videos.id = job.video_id
+                      and videos.status = 'queued'
+                    returning job.id
                     """,
                     (worker_id, job_id, video_id),
-                )
+                ).fetchone()
+                if claimed is None:
+                    return False
                 conn.execute(
                     """
                     update videos
@@ -48,6 +56,7 @@ class MediaRepository:
                     """,
                     (video_id,),
                 )
+        return True
 
     def mark_processing(self, *, video_id: str, probe: MediaProbe) -> None:
         with self._connect() as conn:

@@ -32,7 +32,9 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
     source_suffix = Path(original_storage_key).suffix or ".media"
     try:
         logger.info("sector=D stage=processing_started video_id=%s job_id=%s key=%s", video_id, job_id, original_storage_key)
-        repository.mark_started(video_id=video_id, job_id=job_id, worker_id=config.worker_id())
+        if not repository.mark_started(video_id=video_id, job_id=job_id, worker_id=config.worker_id()):
+            logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=not_queued", video_id, job_id)
+            return {"status": "skipped", "video_id": video_id, "job_id": job_id}
         with tempfile.TemporaryDirectory(prefix=f"atlas-{video_id}-") as temp_dir:
             work_dir = Path(temp_dir)
             source_path = work_dir / f"source{source_suffix}"
