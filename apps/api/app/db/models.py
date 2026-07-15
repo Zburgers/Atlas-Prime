@@ -14,6 +14,7 @@ from app.domain.status import (
     MODERATION_STATUS_VALUES,
     PRIVACY_VALUES,
     JobStatus,
+    ProcessingStage,
     RenditionStatus,
     VideoPrivacy,
     VideoStatus,
@@ -156,6 +157,7 @@ class VideoProcessingJob(Base):
     __tablename__ = "video_processing_jobs"
     __table_args__ = (
         CheckConstraint(f"status in {_values_sql([status.value for status in JobStatus])}", name="ck_video_processing_jobs_status"),
+        CheckConstraint(f"stage in {_values_sql([stage.value for stage in ProcessingStage])}", name="ck_video_processing_jobs_stage"),
         CheckConstraint("attempt_count >= 0", name="ck_video_processing_jobs_attempt_count_nonnegative"),
         Index("ix_video_processing_jobs_video_created_at", "video_id", "created_at"),
         Index("ix_video_processing_jobs_status_created_at", "status", "created_at"),
@@ -164,6 +166,7 @@ class VideoProcessingJob(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default=JobStatus.QUEUED.value, server_default=JobStatus.QUEUED.value)
+    stage: Mapped[str] = mapped_column(Text, nullable=False, default=ProcessingStage.QUEUED.value, server_default=ProcessingStage.QUEUED.value)
     attempt_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     worker_id: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

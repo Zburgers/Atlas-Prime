@@ -28,6 +28,7 @@ class MediaRepository:
                     """
                     update video_processing_jobs as job
                     set status = 'running',
+                        stage = 'downloading',
                         attempt_count = job.attempt_count + 1,
                         worker_id = %s,
                         started_at = now(),
@@ -58,7 +59,7 @@ class MediaRepository:
                 )
         return True
 
-    def mark_processing(self, *, video_id: str, probe: MediaProbe) -> None:
+    def mark_processing(self, *, video_id: str, job_id: str, probe: MediaProbe) -> None:
         with self._connect() as conn:
             conn.execute(
                 """
@@ -82,6 +83,17 @@ class MediaRepository:
                     probe.source_bitrate,
                     video_id,
                 ),
+            )
+            conn.execute(
+                "update video_processing_jobs set stage = 'packaging' where id = %s and video_id = %s",
+                (job_id, video_id),
+            )
+
+    def mark_stage(self, *, video_id: str, job_id: str, stage: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "update video_processing_jobs set stage = %s where id = %s and video_id = %s and status = 'running'",
+                (stage, job_id, video_id),
             )
 
     def mark_succeeded(
@@ -149,6 +161,7 @@ class MediaRepository:
                     """
                     update video_processing_jobs
                     set status = 'succeeded',
+                        stage = 'complete',
                         finished_at = now(),
                         error_code = null,
                         error_message = null
@@ -176,6 +189,7 @@ class MediaRepository:
                     """
                     update video_processing_jobs
                     set status = 'failed',
+                        stage = 'failed',
                         finished_at = now(),
                         error_code = %s,
                         error_message = %s

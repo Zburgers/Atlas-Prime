@@ -133,6 +133,7 @@ export type ProcessingJob = {
   id: string;
   video_id: string;
   status: "queued" | "running" | "succeeded" | "failed" | "canceled";
+  stage: "queued" | "downloading" | "probing" | "packaging" | "uploading" | "complete" | "failed";
   attempt_count: number;
   worker_id: string | null;
   started_at: string | null;

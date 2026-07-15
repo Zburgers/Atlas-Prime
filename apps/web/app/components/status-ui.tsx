@@ -22,6 +22,16 @@ const STATUS_HINTS: Record<VideoStatus, string> = {
   failed: "The backend marked this video failed. Check the message below.",
 };
 
+const STAGE_LABELS: Record<NonNullable<ProcessingStatus["latest_job"]>["stage"], string> = {
+  queued: "Waiting for a worker",
+  downloading: "Downloading the original",
+  probing: "Inspecting media",
+  packaging: "Generating HLS renditions",
+  uploading: "Publishing playback assets",
+  complete: "Processing complete",
+  failed: "Processing failed",
+};
+
 export function StatusPill({ status }: { status: VideoStatus }) {
   return <span className={`statusPill status-${status}`}>{STATUS_LABELS[status]}</span>;
 }
@@ -70,7 +80,7 @@ export function StatusPanel({
         <dl className="detailGrid">
           <div>
             <dt>Latest job</dt>
-            <dd>{processingStatus.latest_job.status}</dd>
+            <dd>{STAGE_LABELS[processingStatus.latest_job.stage]}</dd>
           </div>
           <div>
             <dt>Attempts</dt>

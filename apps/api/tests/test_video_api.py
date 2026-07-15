@@ -384,6 +384,7 @@ def test_upload_stores_original_and_queues_processing(client: TestClient) -> Non
     assert body["video"]["status"] == "queued"
     assert body["video"]["original_storage_key"] == expected_key
     assert body["processing_job"]["status"] == "queued"
+    assert body["processing_job"]["stage"] == "queued"
     assert body["storage_key"] == expected_key
     assert body["size_bytes"] == len(data)
     assert body["content_type"] == "video/mp4"

@@ -41,6 +41,7 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
             logger.info("sector=D stage=original_download video_id=%s job_id=%s", video_id, job_id)
             storage.download_original(original_storage_key, source_path)
 
+            repository.mark_stage(video_id=video_id, job_id=job_id, stage="probing")
             probe = probe_media(source_path)
             logger.info(
                 "sector=D stage=probe_complete video_id=%s job_id=%s duration=%s width=%s height=%s video_codec=%s audio_codec=%s",
@@ -52,7 +53,7 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
                 probe.video_codec,
                 probe.audio_codec,
             )
-            repository.mark_processing(video_id=video_id, probe=probe)
+            repository.mark_processing(video_id=video_id, job_id=job_id, probe=probe)
 
             package_result = package_to_hls(
                 video_id=video_id,
@@ -60,6 +61,7 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
                 output_root=work_dir / "processed",
                 probe=probe,
             )
+            repository.mark_stage(video_id=video_id, job_id=job_id, stage="uploading")
             uploaded_keys = storage.upload_hls_tree(video_id=video_id, hls_root=package_result.hls_root)
             logger.info(
                 "sector=D stage=hls_upload_complete video_id=%s job_id=%s renditions=%s uploaded_objects=%s",

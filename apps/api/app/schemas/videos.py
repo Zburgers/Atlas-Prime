@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.status import JobStatus, RenditionStatus, VideoPrivacy, VideoStatus
+from app.domain.status import JobStatus, ProcessingStage, RenditionStatus, VideoPrivacy, VideoStatus
 from app.schemas.captions import TextTrackResponse
 
 
@@ -158,6 +158,7 @@ class ProcessingJobResponse(BaseModel):
     id: UUID
     video_id: UUID
     status: JobStatus
+    stage: ProcessingStage
     attempt_count: int
     worker_id: str | None
     started_at: datetime | None

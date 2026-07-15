@@ -36,6 +36,16 @@ class JobStatus(StrEnum):
     CANCELED = "canceled"
 
 
+class ProcessingStage(StrEnum):
+    QUEUED = "queued"
+    DOWNLOADING = "downloading"
+    PROBING = "probing"
+    PACKAGING = "packaging"
+    UPLOADING = "uploading"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+
 class RenditionStatus(StrEnum):
     PENDING = "pending"
     PROCESSING = "processing"
