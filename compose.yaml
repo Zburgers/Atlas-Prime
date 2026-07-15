@@ -34,6 +34,8 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-atlasminio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-atlasminiopassword}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${ATLAS_MEDIA_CORS_ALLOWED_ORIGINS:-http://localhost:3001}
+      MINIO_API_CORS_ALLOW_CREDENTIALS_WITH_WILDCARD: "off"
     ports:
       - "9000:9000"
       - "9001:9001"

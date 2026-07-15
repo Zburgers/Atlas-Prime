@@ -34,6 +34,8 @@ MinIO local buckets are bootstrapped as private buckets:
 - `atlas-originals`
 - `atlas-processed`
 
+Signed playback uses MinIO's explicit server CORS origins from `ATLAS_MEDIA_CORS_ALLOWED_ORIGINS` (default: `http://localhost:3001`). Set it to the exact browser origin or origins for each deployment. The bucket policies remain private, so browser access still requires a signed object URL; the CORS setting does not make either bucket public.
+
 ## Standard Commands
 
 ```sh
