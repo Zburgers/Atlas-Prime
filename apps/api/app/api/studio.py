@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query, status
 from app.api.deps import CurrentUserDep, ProcessingQueueDep, SessionDep
 from app.domain.status import VideoPrivacy, VideoStatus
 from app.schemas.studio import StudioVideoListResponse, StudioVideoUpdate
-from app.schemas.videos import ProcessingJobResponse, ProcessingTimelineResponse, VideoChapterListResponse, VideoChapterReplace, VideoChapterResponse, VideoListItemResponse, VideoResponse
+from app.schemas.videos import PlaybackTokenRotationResponse, ProcessingJobResponse, ProcessingTimelineResponse, VideoChapterListResponse, VideoChapterReplace, VideoChapterResponse, VideoListItemResponse, VideoResponse
 from app.services import chapters as chapters_service
 from app.services import studio as studio_service
 
@@ -94,6 +94,11 @@ async def studio_video_processing_timeline(
     user: CurrentUserDep,
 ) -> ProcessingTimelineResponse:
     return ProcessingTimelineResponse(items=await studio_service.processing_timeline(session, user, video_id))
+
+
+@router.post("/videos/{video_id}/rotate-playback-token", response_model=PlaybackTokenRotationResponse)
+async def rotate_studio_video_playback_token(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> PlaybackTokenRotationResponse:
+    return PlaybackTokenRotationResponse(playback_token_version=await studio_service.rotate_playback_token(session, user, video_id))
 
 
 @router.get("/videos/{video_id}/chapters", response_model=VideoChapterListResponse)

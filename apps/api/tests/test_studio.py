@@ -230,3 +230,14 @@ def test_owner_can_view_processing_timeline(client: TestClient) -> None:
     assert response.json()["items"][-1]["status"] == "queued"
     assert response.json()["items"][-1]["stage"] == "queued"
     assert denied.status_code == 403
+
+
+def test_owner_can_rotate_playback_tokens(client: TestClient) -> None:
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Rotate playback"}).json()
+
+    rotated = client.post(f"/studio/videos/{video['id']}/rotate-playback-token", headers=_headers("owner"))
+    denied = client.post(f"/studio/videos/{video['id']}/rotate-playback-token", headers=_headers("other"))
+
+    assert rotated.status_code == 200
+    assert rotated.json() == {"playback_token_version": 2}
+    assert denied.status_code == 403

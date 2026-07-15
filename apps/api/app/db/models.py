@@ -104,6 +104,7 @@ class Video(Base):
     view_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     impression_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     like_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    playback_token_version: Mapped[int] = mapped_column(nullable=False, default=1, server_default="1")
     failure_code: Mapped[str | None] = mapped_column(Text)
     failure_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

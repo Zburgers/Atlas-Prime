@@ -74,6 +74,13 @@ async def processing_timeline(session: AsyncSession, user: User, video_id: UUID)
     return list(result.scalars())
 
 
+async def rotate_playback_token(session: AsyncSession, user: User, video_id: UUID) -> int:
+    video = await video_service.get_video_for_owner(session, user, video_id)
+    video.playback_token_version += 1
+    await session.commit()
+    return video.playback_token_version
+
+
 async def retry_failed_video(
     session: AsyncSession,
     user: User,

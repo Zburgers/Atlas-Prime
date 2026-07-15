@@ -180,6 +180,10 @@ class ProcessingTimelineResponse(BaseModel):
     items: list[ProcessingJobResponse]
 
 
+class PlaybackTokenRotationResponse(BaseModel):
+    playback_token_version: int
+
+
 class RenditionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
