@@ -17,7 +17,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <ClerkProvider publishableKey={clerkPublishableKey}>
           <AppHeader />
-          <main>{children}</main>
+          <a className="skipLink" href="#main-content">Skip to main content</a>
+          <main id="main-content" tabIndex={-1}>{children}</main>
         </ClerkProvider>
       </body>
     </html>
