@@ -26,13 +26,13 @@ These documents define and track Atlas Prime, a learning-oriented, from-scratch 
 
 The upload → MinIO → Celery/FFmpeg → HLS → API proxy → browser playback loop is implemented and has historical local smoke evidence. Current-head tests and any production deployment remain unverified.
 
-The first remediation phase is the authorization and contract boundary:
+The first indexed remediation plan is the remaining authorization and contract boundary:
 
-1. define and enforce a real operator/admin role;
-2. exclude unlisted videos from public discovery;
-3. remove storage keys and queue identifiers from normal API responses;
-4. require a matching Clerk `azp` when authorized parties are configured;
-5. remove stale implementation-phase language from the product UI.
+1. preserve and verify the rollout branch's API admin allowlist and corrected unlisted listing behavior;
+2. remove storage keys and queue identifiers from normal API responses;
+3. require a matching Clerk `azp` when authorized parties are configured;
+4. remove stale implementation-phase language from the product UI;
+5. pass the indexed whole-stack exit gate before upload/job hardening starts.
 
 See the handbook for the complete phased plan covering upload/job idempotency, atomic HLS publication, deletion fencing, storage cleanup, segment integrity, telemetry governance, and release evidence.
 

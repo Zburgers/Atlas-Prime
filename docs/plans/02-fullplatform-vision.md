@@ -1,6 +1,10 @@
 # Atlas Prime Full Platform Rollout Implementation Plan
 
-> For future implementation agents: execute this plan phase by phase, and keep using the repo's required read set, sector manifests, validation gates, and memory handoff protocol before each work unit.
+> For implementation agents: this is an architecture umbrella, not an execution queue. Select work only from an executable plan marked READY in `docs/plans/README.md`.
+
+Status: architecture and rollout umbrella; not the live task queue
+Last reconciled: 2026-08-04
+Live execution index: `docs/plans/README.md`
 
 **Goal:** Evolve the completed Atlas Prime MVP into a self-hostable, YouTube-like VOD platform with public discovery, creator tooling, analytics, moderation, search, recommendations, and production-grade media delivery.
 
@@ -18,6 +22,9 @@ This is the post-MVP rollout contract. It does not replace:
 - `docs/01-agent-operating-contract.md` for agent behavior.
 - `docs/sectors/*.md` for the current A-H sector ownership model.
 - `memory/` for factual handoff entries.
+- `docs/plans/README.md` for current status, dependencies, and sequential agent execution.
+
+Do not select an issue or “next step” directly from this document. The implementation has moved beyond several phase descriptions, and the merged PR #11 handbook identified MVP hardening work that now takes priority. Only an executable plan marked READY in the plan index authorizes the next work unit.
 
 Use this document when planning work beyond the existing MVP loop. Every phase below must keep the current MVP loop working:
 
@@ -66,6 +73,12 @@ Current branch for this planning pass:
 
 ```txt
 docs/fullplatform-rollout
+```
+
+Reconciled candidate commit after merging PR #11 documentation:
+
+```txt
+65e23a0697091916f84b4b3b64953372730c7998
 ```
 
 Current primary files:
@@ -1160,6 +1173,8 @@ Current status: shared shell and public search verification delivered. Signed-in
 
 ### Phase 1 - Public Platform Basics
 
+Status: delivered on `docs/fullplatform-rollout`; preserve as regression scope.
+
 Goal: make Atlas Prime feel like a small public VOD site.
 
 Build:
@@ -1183,6 +1198,8 @@ Acceptance:
 - Basic view/like counts are shown without leaking private content.
 
 ### Phase 2 - Engagement And Creator Workflow
+
+Status: delivered for listed v1 slices, including subscriptions/history, playlists, thumbnails, captions, chapters, and processing timeline; preserve as regression scope.
 
 Goal: make viewers and creators return.
 
@@ -1208,6 +1225,8 @@ Acceptance:
 
 ### Phase 3 - Discovery, Analytics, And Deterministic Ranking
 
+Status: delivered for deterministic home/trending/related ranking, request/result logging, rich playback events, scheduled aggregates, Creator analytics, and Admin diagnostics.
+
 Goal: make discovery measurable and debuggable.
 
 Build:
@@ -1231,6 +1250,8 @@ Acceptance:
 
 ### Phase 4 - Media And Delivery Upgrade
 
+Status: delivered for expanded renditions, output metadata, generated thumbnail candidates, partial cleanup, processing stages, storage cleanup, and signed-redirect delivery. Attempt-scoped atomic publication and deletion fencing remain MVP hardening work in the indexed remediation plans.
+
 Goal: make media quality and delivery scale past the local MVP proxy.
 
 Build:
@@ -1253,6 +1274,8 @@ Acceptance:
 
 ### Phase 5 - Search Service And Recommendation V2
 
+Status: search service/indexing/read fallback and transcript search are delivered. Recommendation V2 is DEFERRED until indexed hardening Plans 1-5 pass and the owner explicitly promotes it.
+
 Goal: move from deterministic discovery to scalable retrieval/ranking.
 
 Build:
@@ -1274,6 +1297,8 @@ Acceptance:
 
 ### Phase 6 - ML Personalization
 
+Status: NOT APPROVED and not implementation-ready. No agent may start this phase from this document.
+
 Goal: add ML only after the event platform is trustworthy.
 
 Build:
@@ -1293,6 +1318,8 @@ Acceptance:
 - Report/not-interested/safety guardrails are enforced.
 
 ### Phase 7 - Trust, Notifications, Monetization, And Advanced Platform
+
+Status: moderation/reporting v1 is delivered. Notifications, monetization, live, and advanced platform work remain unapproved; no agent may infer authority from this phase heading.
 
 Goal: mature into a real platform.
 
@@ -1714,29 +1741,9 @@ Documentation rules:
 
 ## 18. Immediate Recommended Next Step
 
-Start with Phase 1, Issue 9:
+Use `docs/plans/README.md`. The active next work is Plan 1, Contract Boundary Remediation.
 
-```txt
-Recommendation Event Foundation
-```
-
-Reason:
-
-- Public browse, channel pages, search, views, impressions, likes, watch-later saves, Creator Studio, comments, and a deterministic home feed are now in place.
-- Recommendation event logging is the next durability layer needed to make ranked feed responses auditable.
-- It can persist the existing feed `request_id`, rank, and impression/playback join points.
-- It does not require new infrastructure.
-
-After Issue 9, do:
-
-```txt
-10. Thumbnail Manager
-11. Admin Reports And Moderation
-12. Analytics Aggregates
-13. Captions V1
-```
-
-This order keeps the platform demoable after every increment.
+Issues 9-13 and the later playlists, discovery, media, signed-delivery, dedicated-search, accessibility, and transcript-search slices are already delivered on this branch. Recommendation V2 is not the next task: remaining reachable MVP security/reliability findings and attributable release evidence take priority.
 
 ## 19. Explicit Non-Goals For The Next Two Phases
 

@@ -1,13 +1,14 @@
 # Atlas Prime — Product Specification and Engineering Handbook
 
-Document version: 1.0  
+Document version: 1.1
 Last updated: 2026-08-04  
 Generated or audited by: repository handbook synchronization agent  
 Repository: `Zburgers/Atlas-Prime`  
 Authoritative branch: `main`  
 Verified branch commit: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`  
-Working branch: `docs/product-handbook-sync-2026-08-04`  
-Working branch base commit: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`  
+Current authoritative branch commit after handbook merge: `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`
+Reconciled candidate branch: `docs/fullplatform-rollout`
+Reconciliation base commit before version 1.1 documentation: `65e23a0697091916f84b4b3b64953372730c7998`
 Production status: `UNVERIFIED`  
 Verified deployed commit: `UNVERIFIED`  
 Deployment verification: no production URL, release artifact, deployed revision endpoint, image digest, or authorized runtime evidence was found  
@@ -46,6 +47,31 @@ Evidence levels:
 - `E0` implementation contradicts the documented requirement.
 
 No current feature is classified `E1`; production is unverified.
+
+## 2026-08-04 rollout-branch reconciliation addendum
+
+PR #11 established this handbook from `main` implementation commit `dcf8d5c` and was merged to `main` as documentation-only commit `8d0ebc5`. The `docs/fullplatform-rollout` branch has a much newer post-MVP implementation lineage through `4f0e98d`; merge commit `65e23a0` combines that lineage with the handbook. Consequently, the original finding text remains valid evidence for its named `main` commit but is not a current-state queue for the rollout branch.
+
+The rollout branch resolves or partially resolves several original findings:
+
+| Change | Reconciled branch state | Evidence summary |
+|---|---|---|
+| C-001 admin authorization | PARTIAL | FastAPI admin routes use `AdminUserDep` backed by `ATLAS_ADMIN_CLERK_USER_IDS`; proxy/UI regression coverage still belongs in Plan 1 |
+| C-002 unlisted discovery | RESOLVED | `list_visible_videos()` exposes only ready, public, moderation-approved videos to non-owners |
+| C-003 response internals | OPEN | normal API/frontend types still expose storage keys and Celery task IDs |
+| C-004 upload idempotency | OPEN | upload remains read-then-write and accepts `uploading` as a starting state |
+| C-005 attempt ownership | PARTIAL | worker atomically claims queued job/video, but no generation lease or stale-finalization fence exists |
+| C-006 atomic publication | PARTIAL | partial HLS cleanup exists; uploads still target a shared deterministic prefix |
+| C-007 deletion cleanup | PARTIAL | synchronous original/processed object cleanup exists; durable retry semantics are absent |
+| C-008 active-worker deletion fence | OPEN | no tombstone/generation guard prevents post-delete recreation |
+| C-009 segment binding | OPEN | patterned segment paths are accepted without published inventory binding |
+| C-010 telemetry governance | OPEN | no admission rate, event dedupe identity, or retention job |
+| C-011 strict `azp` | OPEN | configured allowlist still accepts a missing `azp` |
+| C-012 stale watch copy | OPEN | watch UI still contains “D/E still own HLS generation” |
+
+The branch also delivers post-MVP product slices absent from the original `main` audit, including channels/discovery, reactions/saves, Studio, comments, deterministic feeds and diagnostics, thumbnails, moderation, analytics, captions, subscriptions/history, playlists, richer playback events, expanded media outputs, chapters/timeline, signed redirect delivery, Meilisearch, accessibility verification, and caption transcript search.
+
+The canonical live queue is `docs/plans/README.md`. Its five indexed plans replace the broad phase allocation below with sequential task IDs, exact files, commands, expected results, entry gates, and stop conditions. Post-MVP Recommendation V2/ML work is deferred until that hardening and release-evidence sequence passes and the owner explicitly approves further scope.
 
 ---
 
@@ -492,7 +518,9 @@ When `CLERK_AUTHORIZED_PARTIES` is non-empty, reject missing or non-matching `az
 
 Replace watch-page copy claiming Sector D/E still own pending HLS work. User-facing surfaces must describe actual state, not repository coordination history.
 
-## 10. Dependency-ordered build plan
+## 10. Dependency-ordered remediation summary
+
+Status: non-executable overview. Use `docs/plans/README.md` and its indexed plans for implementation.
 
 ### Phase 1 — Authorization and contract boundary
 

@@ -3,6 +3,8 @@
 Status: instructions for the human engineering owner  
 Purpose: decide work order, evaluate sector output, and keep the project coherent.
 
+Current-state note (2026-08-04): Waves 0-3 are historical MVP construction guidance; the vertical loop and many post-MVP slices now exist. Do not use the wave headings as a live task queue. Current status and sequential work order are in `docs/plans/README.md`.
+
 ## 1. Recommended implementation waves
 
 ### Wave 0 — foundation

@@ -1,7 +1,9 @@
 # Post-MVP Platform Evolution Ideas — Atlas Prime
 
 *Generated: 29-06-2026*
-*Status: Brainstorm / Research Phase*
+*Status: REFERENCE ONLY — not an executable or approved implementation plan*
+
+This idea inventory is indexed by `docs/plans/README.md`. Agents must not implement an item from this file unless the owner promotes it into an indexed executable plan with scope, dependencies, exact files, verification, and an entry gate.
 
 ---
 
