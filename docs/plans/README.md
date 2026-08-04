@@ -28,7 +28,7 @@ Precedence for implementation work:
 | I | `README.md` | Canonical index | ACTIVE | None | Index completeness check |
 | R0 | `290626-post-mvp-brainstorm.md` | Research input | REFERENCE ONLY | None | Never executable |
 | R1 | `02-fullplatform-vision.md` | Architecture/rollout umbrella | ACTIVE REFERENCE | Read after MVP contracts | Never used as a task queue |
-| 1 | `2026-08-04-01-contract-boundary.md` | Executable remediation | COMPLETE | Plan 1 implementation commits present; docs handoff evidence pending this commit | `bac7a89`, `fd62a20`, `d79b42f`, `ced7472`, `d33d456` plus contract-boundary handoff |
+| 1 | `2026-08-04-01-contract-boundary.md` | Executable remediation | COMPLETE | Exit evidence recorded at `5a44489` (make lint/test pass; smoke blocked only by occupied 127.0.0.1:3001) | `bac7a89`, `fd62a20`, `d79b42f`, `ced7472`, `d33d456`, `5a44489` |
 | 2 | `2026-08-04-02-upload-job-idempotency.md` | Executable remediation | READY | Plan 1 exit recorded; execute tasks strictly in order | Concurrency/redelivery/recovery tests |
 | 3 | `2026-08-04-03-media-publication-deletion.md` | Executable remediation | BLOCKED BY 2 | Generation/attempt contract merged | Publication/deletion race suite plus smoke |
 | 4 | `2026-08-04-04-telemetry-governance.md` | Executable remediation | BLOCKED BY 3 | R-004 accepted on 2026-08-05; Plan 3 exit still required | Rate, dedupe, retention, privacy tests |
