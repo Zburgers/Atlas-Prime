@@ -95,6 +95,7 @@ class Video(Base):
     original_storage_key: Mapped[str | None] = mapped_column(Text)
     hls_master_storage_key: Mapped[str | None] = mapped_column(Text)
     thumbnail_storage_key: Mapped[str | None] = mapped_column(Text)
+    active_processing_generation: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True))
     duration_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     width: Mapped[int | None]
     height: Mapped[int | None]
@@ -182,10 +183,17 @@ class VideoProcessingJob(Base):
         CheckConstraint("attempt_count >= 0", name="ck_video_processing_jobs_attempt_count_nonnegative"),
         Index("ix_video_processing_jobs_video_created_at", "video_id", "created_at"),
         Index("ix_video_processing_jobs_status_created_at", "status", "created_at"),
+        Index(
+            "uq_video_processing_jobs_active_video",
+            "video_id",
+            unique=True,
+            postgresql_where=text("status in ('queued', 'running')"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    generation: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, default=uuid.uuid4)
     status: Mapped[str] = mapped_column(Text, nullable=False, default=JobStatus.QUEUED.value, server_default=JobStatus.QUEUED.value)
     stage: Mapped[str] = mapped_column(Text, nullable=False, default=ProcessingStage.QUEUED.value, server_default=ProcessingStage.QUEUED.value)
     attempt_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
