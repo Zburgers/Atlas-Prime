@@ -104,7 +104,10 @@ async def verify_clerk_session_token(token: str) -> ClerkSessionClaims:
 
     parties = authorized_parties()
     token_party = claims.get("azp")
-    if parties and token_party and str(token_party).rstrip("/") not in parties:
+    normalized_token_party = (
+        token_party.strip().rstrip("/") if isinstance(token_party, str) else ""
+    )
+    if parties and normalized_token_party not in parties:
         raise InvalidAuthTokenError("Invalid Clerk token authorized party")
 
     session_status = claims.get("sts")
