@@ -130,3 +130,12 @@ def test_daily_metrics_rebuild_is_deterministic_and_studio_scoped_to_creator(cli
     ]
     assert other_analytics.status_code == 200
     assert other_analytics.json()["top_videos"][0]["video_id"] == other_video["id"]
+
+
+def test_non_admin_cannot_rebuild_global_analytics(client: TestClient) -> None:
+    response = client.post(
+        "/admin/analytics/rebuild?date_from=2026-01-01&date_to=2026-01-01",
+        headers=_headers("viewer"),
+    )
+
+    assert response.status_code == 403

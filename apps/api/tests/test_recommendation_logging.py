@@ -164,11 +164,13 @@ def test_admin_can_inspect_recommendation_and_search_debug_but_viewers_cannot(cl
     assert client.get(f"/feed/home?request_id={request_id}", headers=_headers("viewer")).status_code == 200
 
     denied = client.get("/admin/recommendations", headers=_headers("viewer"))
+    denied_debug = client.get(f"/admin/recommendations/{request_id}", headers=_headers("viewer"))
     recent = client.get("/admin/recommendations", headers=_headers("operator"))
     debug = client.get(f"/admin/recommendations/{request_id}", headers=_headers("operator"))
     search = client.get("/admin/search?q=atlas", headers=_headers("operator"))
 
     assert denied.status_code == 403
+    assert denied_debug.status_code == 403
     assert recent.status_code == 200
     assert recent.json()["items"][0]["request_id"] == request_id
     assert debug.status_code == 200
@@ -195,3 +197,19 @@ def test_admin_can_enqueue_search_reindex_but_viewers_cannot(client: TestClient,
     assert denied.status_code == 403
     assert accepted.status_code == 202
     assert accepted.json() == {"task_id": "search-task-1", "queue": "search"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/admin/search?q=atlas"),
+        ("get", "/admin/ops"),
+        ("get", "/admin/videos"),
+        ("get", "/admin/jobs"),
+        ("get", "/admin/videos/00000000-0000-0000-0000-000000000001/debug"),
+    ],
+)
+def test_non_admin_cannot_access_each_core_admin_router_family(client: TestClient, method: str, path: str) -> None:
+    response = getattr(client, method)(path, headers=_headers("viewer"))
+
+    assert response.status_code == 403

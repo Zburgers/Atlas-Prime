@@ -269,12 +269,21 @@ def test_unlisted_ready_video_is_directly_readable_but_not_publicly_listed(clien
     _mark_video_ready(client, video_id=created["id"], privacy=VideoPrivacy.UNLISTED)
 
     list_response = client.get("/videos")
+    other_list_response = client.get("/videos", headers=_headers("viewer"))
     direct_response = client.get(f"/videos/{created['id']}")
+    other_direct_response = client.get(f"/videos/{created['id']}", headers=_headers("viewer"))
+    other_playback_response = client.get(f"/videos/{created['id']}/playback", headers=_headers("viewer"))
 
     assert list_response.status_code == 200
     assert list_response.json()["items"] == []
+    assert other_list_response.status_code == 200
+    assert other_list_response.json()["items"] == []
     assert direct_response.status_code == 200
     assert direct_response.json()["privacy"] == "unlisted"
+    assert other_direct_response.status_code == 200
+    assert other_direct_response.json()["privacy"] == "unlisted"
+    assert other_playback_response.status_code == 200
+    assert other_playback_response.json()["master_playlist_url"] == f"/videos/{created['id']}/hls/master.m3u8"
 
 
 def test_signed_in_video_list_includes_owned_drafts_and_public_ready_videos(client: TestClient) -> None:

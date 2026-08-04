@@ -104,12 +104,20 @@ def test_viewer_can_report_content_and_only_configured_admin_can_review_it(clien
         },
     )
     denied = client.get("/admin/reports", headers=_headers("viewer"))
+    denied_action = client.post(
+        f"/admin/reports/{created.json()['id']}/actions",
+        headers=_headers("viewer"),
+        json={"action": "remove", "reason": "not authorized"},
+    )
+    denied_audit = client.get("/admin/audit-log", headers=_headers("viewer"))
     queue = client.get("/admin/reports", headers=_headers("operator"))
 
     assert created.status_code == 201
     assert created.json()["status"] == "open"
     assert created.json()["target_type"] == "video"
     assert denied.status_code == 403
+    assert denied_action.status_code == 403
+    assert denied_audit.status_code == 403
     assert queue.status_code == 200, queue.text
     assert queue.json()["total"] == 1
     assert queue.json()["items"][0]["id"] == created.json()["id"]
