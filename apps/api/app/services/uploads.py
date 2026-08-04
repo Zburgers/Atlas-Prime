@@ -5,8 +5,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import PurePath
 from typing import BinaryIO
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile, status
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import upload_max_bytes
@@ -49,14 +51,11 @@ async def upload_original_and_queue_processing(
     processing_queue: ProcessingQueue,
 ) -> UploadedVideoResult:
     video = await video_service.get_video_for_owner(session, user, video_id)
-    _ensure_upload_allowed(video)
-
-    validate_video_transition(VideoStatus(video.status), VideoStatus.UPLOADING)
-    video.status = VideoStatus.UPLOADING.value
-    video.failure_code = None
-    video.failure_message = None
-    await session.commit()
-    await session.refresh(video)
+    try:
+        video = await _claim_upload(session, video)
+    except HTTPException:
+        await file.close()
+        raise
 
     try:
         buffered, size_bytes, header, extension, content_type = await _buffer_and_validate_upload(file)
@@ -90,11 +89,23 @@ async def upload_original_and_queue_processing(
             celery_task_id=result.celery_task_id,
         )
     except HTTPException as exc:
-        await _mark_video_failed(session, video, "UPLOAD_VALIDATION_FAILED", _public_error_message(exc))
+        await _mark_video_failed(
+            session,
+            video,
+            "UPLOAD_VALIDATION_FAILED",
+            _public_error_message(exc),
+            generation=video.active_processing_generation,
+        )
         raise
     except Exception:
         logger.exception("sector=C stage=upload_failed video_id=%s", video.id)
-        await _mark_video_failed(session, video, "UPLOAD_FAILED", "Upload failed before processing could be queued")
+        await _mark_video_failed(
+            session,
+            video,
+            "UPLOAD_FAILED",
+            "Upload failed before processing could be queued",
+            generation=video.active_processing_generation,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"error": "UploadFailed", "message": "Upload failed before processing could be queued"},
@@ -118,7 +129,11 @@ async def _queue_uploaded_video(
     if not video.original_storage_key:
         raise RuntimeError("uploaded video is missing original storage key")
     validate_video_transition(VideoStatus(video.status), VideoStatus.QUEUED)
-    job = VideoProcessingJob(video_id=video.id, status=JobStatus.QUEUED.value)
+    job = VideoProcessingJob(
+        video_id=video.id,
+        generation=video.active_processing_generation,
+        status=JobStatus.QUEUED.value,
+    )
     video.status = VideoStatus.QUEUED.value
     session.add(job)
     await session.flush()
@@ -131,7 +146,13 @@ async def _queue_uploaded_video(
     except Exception:
         await session.rollback()
         await session.refresh(video)
-        await _mark_video_failed(session, video, "UPLOAD_ENQUEUE_FAILED", "Upload stored but processing could not be queued")
+        await _mark_video_failed(
+            session,
+            video,
+            "UPLOAD_ENQUEUE_FAILED",
+            "Upload stored but processing could not be queued",
+            generation=video.active_processing_generation,
+        )
         raise
     await session.commit()
     await session.refresh(video)
@@ -139,9 +160,27 @@ async def _queue_uploaded_video(
     return QueuedVideoResult(video=video, processing_job=job, celery_task_id=celery_task_id)
 
 
-def _ensure_upload_allowed(video: Video) -> None:
-    status_value = VideoStatus(video.status)
-    if status_value not in {VideoStatus.DRAFT, VideoStatus.UPLOADING, VideoStatus.FAILED}:
+async def _claim_upload(session: AsyncSession, video: Video) -> Video:
+    generation = uuid4()
+    claim = (
+        update(Video)
+        .where(
+            Video.id == video.id,
+            Video.owner_id == video.owner_id,
+            Video.status.in_((VideoStatus.DRAFT.value, VideoStatus.FAILED.value)),
+        )
+        .values(
+            status=VideoStatus.UPLOADING.value,
+            active_processing_generation=generation,
+            failure_code=None,
+            failure_message=None,
+        )
+        .returning(Video.id)
+    )
+    result = await session.execute(claim)
+    claimed_id = result.scalar_one_or_none()
+    if claimed_id is None:
+        await session.refresh(video)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -150,6 +189,9 @@ def _ensure_upload_allowed(video: Video) -> None:
                 "details": {"current_status": video.status},
             },
         )
+    await session.commit()
+    await session.refresh(video)
+    return video
 
 
 async def _buffer_and_validate_upload(file: UploadFile) -> tuple[BinaryIO, int, bytes, str, str]:
@@ -220,15 +262,23 @@ def _header_matches_video_container(extension: str, header: bytes) -> bool:
     return False
 
 
-async def _mark_video_failed(session: AsyncSession, video: Video, code: str, message: str) -> None:
-    try:
-        validate_video_transition(VideoStatus(video.status), VideoStatus.FAILED)
-    except Exception:
-        pass
-    video.status = VideoStatus.FAILED.value
-    video.failure_code = code
-    video.failure_message = message
+async def _mark_video_failed(
+    session: AsyncSession,
+    video: Video,
+    code: str,
+    message: str,
+    *,
+    generation: UUID | None,
+) -> None:
+    if generation is None:
+        return
+    await session.execute(
+        update(Video)
+        .where(Video.id == video.id, Video.active_processing_generation == generation)
+        .values(status=VideoStatus.FAILED.value, failure_code=code, failure_message=message)
+    )
     await session.commit()
+    await session.refresh(video)
 
 
 def _public_error_message(exc: HTTPException) -> str:

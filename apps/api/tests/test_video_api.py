@@ -1,5 +1,7 @@
 from collections.abc import AsyncGenerator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Event
 from typing import BinaryIO
 from uuid import UUID
 
@@ -16,6 +18,7 @@ from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
 from app.services.processing_queue import QueueInspection, WorkerInspection
 from app.services.storage import HlsObject, HlsObjectNotFoundError, StoredObject, original_storage_key
+from app.services.uploads import _mark_video_failed
 
 
 @pytest.fixture()
@@ -457,6 +460,83 @@ def test_upload_stores_original_and_queues_processing(client: TestClient) -> Non
             "original_storage_key": expected_key,
         }
     ]
+
+
+def test_upload_claim_is_atomic_and_rejects_concurrent_uploading_state(client: TestClient) -> None:
+    class BlockingStorage(FakeOriginalStorage):
+        entered = Event()
+        release = Event()
+
+        def put_original(self, **kwargs: object) -> StoredObject:
+            self.entered.set()
+            assert self.release.wait(timeout=5)
+            return super().put_original(**kwargs)  # type: ignore[arg-type]
+
+    storage = BlockingStorage()
+    queue = FakeProcessingQueue()
+    app.dependency_overrides[get_original_storage] = lambda: storage
+    app.dependency_overrides[get_processing_queue] = lambda: queue
+    created = client.post("/videos", headers=_headers(), json={"title": "Concurrent upload"})
+    video_id = created.json()["id"]
+
+    def upload() -> object:
+        # Each request gets its own TestClient portal so the ASGI calls can
+        # overlap; the first remains inside storage while the second claims.
+        with TestClient(app) as concurrent_client:
+            return concurrent_client.post(
+                f"/videos/{video_id}/upload",
+                headers=_headers(),
+                files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(upload)
+        assert storage.entered.wait(timeout=5)
+        second = pool.submit(upload)
+        rejected = second.result(timeout=5)
+        storage.release.set()
+        accepted = first.result(timeout=5)
+
+    assert accepted.status_code == 200
+    assert rejected.status_code == 409
+    assert storage.objects and len(storage.objects) == 1
+    assert len(queue.jobs) == 1
+
+
+def test_stale_upload_failure_cannot_mutate_new_generation(client: TestClient) -> None:
+    _storage, _queue = _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers(), json={"title": "Generation fence"})
+    video_id = created.json()["id"]
+    upload = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers(),
+        files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+    )
+    assert upload.status_code == 200
+
+    import asyncio
+    from uuid import uuid4
+
+    async def apply_stale_failure() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            current_generation = video.active_processing_generation
+            video.active_processing_generation = uuid4()
+            await session.commit()
+            await _mark_video_failed(
+                session,
+                video,
+                "STALE_FAILURE",
+                "must not apply",
+                generation=current_generation,
+            )
+
+    asyncio.run(apply_stale_failure())
+    status_response = client.get(f"/videos/{video_id}/processing-status", headers=_headers())
+    assert status_response.status_code == 200
+    assert status_response.json()["video_status"] == "queued"
+    assert status_response.json()["failure_code"] is None
 
 
 def test_playback_metadata_and_hls_master_are_served_for_owner(client: TestClient) -> None:
