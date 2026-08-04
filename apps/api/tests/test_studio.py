@@ -91,11 +91,12 @@ class FakeProcessingQueue:
     def __init__(self) -> None:
         self.jobs: list[dict[str, str]] = []
 
-    def enqueue_video_processing(self, *, video_id: UUID, job_id: UUID, original_storage_key: str) -> str:
+    def enqueue_video_processing(self, *, video_id: UUID, job_id: UUID, generation: UUID, original_storage_key: str) -> str:
         self.jobs.append(
             {
                 "video_id": str(video_id),
                 "job_id": str(job_id),
+                "generation": str(generation),
                 "original_storage_key": original_storage_key,
             }
         )
@@ -172,13 +173,11 @@ def test_studio_retries_failed_video_only_when_safe(client: TestClient) -> None:
     assert missing_response.status_code == 409
     assert retried.status_code == 201
     assert retried.json()["status"] == "queued"
-    assert queue.jobs == [
-        {
-            "video_id": failed["id"],
-            "job_id": retried.json()["id"],
-            "original_storage_key": original_key,
-        }
-    ]
+    assert len(queue.jobs) == 1
+    assert queue.jobs[0]["video_id"] == failed["id"]
+    assert queue.jobs[0]["job_id"] == retried.json()["id"]
+    assert queue.jobs[0]["original_storage_key"] == original_key
+    UUID(queue.jobs[0]["generation"])
     assert status_response.json()["video_status"] == "queued"
     assert status_response.json()["failure_code"] is None
 

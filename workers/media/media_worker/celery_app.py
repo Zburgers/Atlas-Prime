@@ -26,13 +26,13 @@ def health() -> dict[str, str]:
 
 
 @celery_app.task(name="media_worker.process_video")
-def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict[str, str]:
+def process_video(video_id: str, job_id: str, generation: str, original_storage_key: str) -> dict[str, str]:
     repository = MediaRepository()
     storage = ObjectStorage()
     source_suffix = Path(original_storage_key).suffix or ".media"
     try:
         logger.info("sector=D stage=processing_started video_id=%s job_id=%s key=%s", video_id, job_id, original_storage_key)
-        if not repository.mark_started(video_id=video_id, job_id=job_id, worker_id=config.worker_id()):
+        if not repository.mark_started(video_id=video_id, job_id=job_id, generation=generation, worker_id=config.worker_id()):
             logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=not_queued", video_id, job_id)
             return {"status": "skipped", "video_id": video_id, "job_id": job_id}
         with tempfile.TemporaryDirectory(prefix=f"atlas-{video_id}-") as temp_dir:
@@ -41,7 +41,9 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
             logger.info("sector=D stage=original_download video_id=%s job_id=%s", video_id, job_id)
             storage.download_original(original_storage_key, source_path)
 
-            repository.mark_stage(video_id=video_id, job_id=job_id, stage="probing")
+            if not repository.mark_stage(video_id=video_id, job_id=job_id, generation=generation, stage="probing"):
+                logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_generation", video_id, job_id)
+                return {"status": "skipped", "video_id": video_id, "job_id": job_id}
             probe = probe_media(source_path)
             logger.info(
                 "sector=D stage=probe_complete video_id=%s job_id=%s duration=%s width=%s height=%s video_codec=%s audio_codec=%s",
@@ -53,7 +55,9 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
                 probe.video_codec,
                 probe.audio_codec,
             )
-            repository.mark_processing(video_id=video_id, job_id=job_id, probe=probe)
+            if not repository.mark_processing(video_id=video_id, job_id=job_id, generation=generation, probe=probe):
+                logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_generation", video_id, job_id)
+                return {"status": "skipped", "video_id": video_id, "job_id": job_id}
 
             package_result = package_to_hls(
                 video_id=video_id,
@@ -61,7 +65,9 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
                 output_root=work_dir / "processed",
                 probe=probe,
             )
-            repository.mark_stage(video_id=video_id, job_id=job_id, stage="uploading")
+            if not repository.mark_stage(video_id=video_id, job_id=job_id, generation=generation, stage="uploading"):
+                logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_generation", video_id, job_id)
+                return {"status": "skipped", "video_id": video_id, "job_id": job_id}
             uploaded_keys = storage.upload_hls_tree(video_id=video_id, hls_root=package_result.hls_root)
             logger.info(
                 "sector=D stage=hls_upload_complete video_id=%s job_id=%s renditions=%s uploaded_objects=%s",
@@ -70,14 +76,18 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
                 ",".join(rendition.label for rendition in package_result.renditions),
                 len(uploaded_keys),
             )
-            repository.mark_succeeded(
+            applied = repository.mark_succeeded(
                 video_id=video_id,
                 job_id=job_id,
+                generation=generation,
                 master_key=package_result.master_storage_key,
                 thumbnail_key=package_result.thumbnail_storage_key,
                 generated_thumbnail_keys=package_result.generated_thumbnail_storage_keys,
                 renditions=package_result.renditions,
             )
+            if not applied:
+                logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_terminal", video_id, job_id)
+                return {"status": "skipped", "video_id": video_id, "job_id": job_id}
             return {
                 "status": "ready",
                 "video_id": video_id,
@@ -92,20 +102,28 @@ def process_video(video_id: str, job_id: str, original_storage_key: str) -> dict
             exc.code,
         )
         _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id)
-        repository.mark_failed(
+        applied = repository.mark_failed(
             video_id=video_id,
             job_id=job_id,
+            generation=generation,
             failure=ProcessingFailure(code=exc.code, message=exc.safe_message),
         )
+        if not applied:
+            logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_terminal", video_id, job_id)
+            return {"status": "skipped", "video_id": video_id, "job_id": job_id}
         return {"status": "failed", "video_id": video_id, "job_id": job_id, "failure_code": exc.code}
     except Exception as exc:
         logger.exception("sector=D stage=processing_exception video_id=%s job_id=%s", video_id, job_id)
         _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id)
-        repository.mark_failed(
+        applied = repository.mark_failed(
             video_id=video_id,
             job_id=job_id,
+            generation=generation,
             failure=ProcessingFailure(code="PROCESSING_FAILED", message="Media processing failed"),
         )
+        if not applied:
+            logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_terminal", video_id, job_id)
+            return {"status": "skipped", "video_id": video_id, "job_id": job_id}
         return {
             "status": "failed",
             "video_id": video_id,

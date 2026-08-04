@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -94,7 +94,9 @@ async def retry_failed_video(
         raise _conflict("Video cannot be retried without an uploaded original", {"current_status": video.status})
 
     validate_video_transition(VideoStatus(video.status), VideoStatus.QUEUED)
-    job = VideoProcessingJob(video_id=video.id, status=JobStatus.QUEUED.value)
+    generation = uuid4()
+    job = VideoProcessingJob(video_id=video.id, generation=generation, status=JobStatus.QUEUED.value)
+    video.active_processing_generation = generation
     video.status = VideoStatus.QUEUED.value
     video.failure_code = None
     video.failure_message = None
@@ -104,6 +106,7 @@ async def retry_failed_video(
         processing_queue.enqueue_video_processing(
             video_id=video.id,
             job_id=job.id,
+            generation=job.generation,
             original_storage_key=video.original_storage_key,
         )
     except Exception as exc:
