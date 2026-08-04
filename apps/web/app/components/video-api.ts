@@ -17,9 +17,6 @@ export type Video = {
   description: string | null;
   privacy: VideoPrivacy;
   status: VideoStatus;
-  original_storage_key: string | null;
-  hls_master_storage_key: string | null;
-  thumbnail_storage_key: string | null;
   duration_seconds: string | null;
   width: number | null;
   height: number | null;
@@ -249,10 +246,20 @@ export type AdminRecommendationRequest = { request_id: string; surface: string; 
 export type AdminRecommendationDebug = { request_id: string; surface: string; algorithm_version: string; page: number; page_size: number; total_results: number; results: Array<{ video_id: string; rank: number; score: number; reason: string; impression_count: number; playback_event_count: number; view_count: number }> };
 
 export type AdminVideoDebug = {
-  video: Video;
-  renditions: PlaybackResponse["renditions"];
+  video: AdminVideoDebugVideo;
+  renditions: AdminRenditionDebug[];
   processing_jobs: ProcessingJob[];
   recent_playback_events: PlaybackEvent[];
+};
+
+export type AdminVideoDebugVideo = Video & {
+  original_storage_key: string | null;
+  hls_master_storage_key: string | null;
+  thumbnail_storage_key: string | null;
+};
+
+export type AdminRenditionDebug = PlaybackResponse["renditions"][number] & {
+  playlist_storage_key: string | null;
 };
 
 export type ModerationTargetType = "video" | "comment";
@@ -341,7 +348,6 @@ export type PlaybackResponse = {
     width: number;
     height: number;
     target_bitrate: number;
-    playlist_storage_key: string | null;
     status: string;
     created_at: string;
   }>;
@@ -352,10 +358,8 @@ export type PlaybackResponse = {
 export type UploadResponse = {
   video: Video;
   processing_job: ProcessingJob;
-  storage_key: string;
   size_bytes: number;
   content_type: string;
-  celery_task_id: string;
 };
 
 export class ApiError extends Error {

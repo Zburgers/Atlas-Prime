@@ -475,6 +475,8 @@ def test_playback_metadata_and_hls_master_are_served_for_owner(client: TestClien
 
     assert metadata.status_code == 200
     assert metadata.json()["master_playlist_url"] == f"/videos/{video_id}/hls/master.m3u8"
+    assert metadata.json()["renditions"]
+    assert all("playlist_storage_key" not in rendition for rendition in metadata.json()["renditions"])
     assert response.status_code == 200
     assert response.content == b"#EXTM3U\n"
     assert response.headers["content-type"].startswith("application/vnd.apple.mpegurl")

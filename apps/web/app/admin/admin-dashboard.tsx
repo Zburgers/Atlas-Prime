@@ -3,14 +3,14 @@
 import { Show, SignInButton, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, apiRequest, type AdminJob, type AdminOps, type AdminRecommendationDebug, type AdminRecommendationRequest, type AdminVideoDebug, type Video } from "../components/video-api";
+import { ApiError, apiRequest, type AdminJob, type AdminOps, type AdminRecommendationDebug, type AdminRecommendationRequest, type AdminVideoDebug, type AdminVideoDebugVideo } from "../components/video-api";
 import { formatDate, StatusPill } from "../components/status-ui";
 
 export function AdminDashboard() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [ops, setOps] = useState<AdminOps | null>(null);
   const [jobs, setJobs] = useState<AdminJob[]>([]);
-  const [videos, setVideos] = useState<Video[]>([]);
+  const [videos, setVideos] = useState<AdminVideoDebugVideo[]>([]);
   const [debug, setDebug] = useState<AdminVideoDebug | null>(null);
   const [recommendations, setRecommendations] = useState<AdminRecommendationRequest[]>([]);
   const [recommendationDebug, setRecommendationDebug] = useState<AdminRecommendationDebug | null>(null);
@@ -33,7 +33,7 @@ export function AdminDashboard() {
       const [opsResponse, jobsResponse, videosResponse, recommendationResponse] = await Promise.all([
         apiRequest<AdminOps>("/admin/ops", { token }),
         apiRequest<AdminJob[]>("/admin/jobs", { token }),
-        apiRequest<Video[]>("/admin/videos", { token }),
+        apiRequest<AdminVideoDebugVideo[]>("/admin/videos", { token }),
         apiRequest<{ items: AdminRecommendationRequest[] }>("/admin/recommendations", { token }),
       ]);
       setOps(opsResponse);
