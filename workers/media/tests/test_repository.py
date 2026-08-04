@@ -65,6 +65,22 @@ def test_stage_update_is_generation_fenced(monkeypatch) -> None:
     assert params == ("probing", "job-id", "video-id", "generation-id")
 
 
+def test_stale_processing_update_rolls_back_before_stage_mutation(monkeypatch) -> None:
+    connection = FakeConnection(updates=0)
+    repository = MediaRepository()
+    monkeypatch.setattr(repository, "_connect", lambda: _connection_context(connection))
+
+    from media_worker.packager import MediaProbe
+
+    assert repository.mark_processing(
+        video_id="video-id",
+        job_id="job-id",
+        generation="generation-id",
+        probe=MediaProbe(duration_seconds=1.0, width=640, height=360, video_codec="h264", audio_codec="aac", source_bitrate=1000, has_audio=True),
+    ) is False
+    assert len(connection.calls) == 1
+
+
 def test_stale_success_is_ignored(monkeypatch) -> None:
     connection = FakeConnection(claimable=True, updates=0)
     repository = MediaRepository()

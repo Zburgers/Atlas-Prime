@@ -8,6 +8,7 @@ Branch/Commit: docs/fullplatform-rollout (local, pending commit)
 ## What changed
 - Carried the processing generation through `process_video` and fenced worker claims, stages, success, and failure updates by job ID, generation, running status, and active video generation.
 - Made terminal repository methods return an applied boolean; stale or redelivered tasks log and exit without changing video state.
+- Wrapped all multi-step repository transitions in rollback-safe transactions when any fence predicate loses.
 - Updated studio retry processing to allocate a fresh generation and pass it to the queue.
 
 ## Decisions / ADR notes
@@ -16,7 +17,7 @@ Branch/Commit: docs/fullplatform-rollout (local, pending commit)
 - Alternatives considered: Automatic retries remain out of scope; bounded recovery is Plan 2.5.
 
 ## Validation
-- `docker compose run --rm --build worker pytest tests/test_repository.py -q` — 6 passed.
+- `docker compose run --rm --build worker pytest tests/test_repository.py -q` — 7 passed.
 - `PYTHONPATH=apps/api pytest -q apps/api/tests/test_studio.py apps/api/tests/test_video_api.py` — 40 passed.
 - `git diff --check` — pending final commit validation.
 
