@@ -875,7 +875,7 @@ Token verification:
 - issuer.
 - required `exp`, `iat`, `nbf`, `sub`.
 - pending session rejection.
-- optional authorized-party allowlist with the missing-`azp` bug described in C-011.
+- optional authorized-party allowlist; when configured, missing or mismatched `azp` is rejected.
 
 Authorization helpers:
 
@@ -1222,12 +1222,12 @@ Changes:
 
 | Feature | Product status | Completeness | Runtime state | Evidence | Primary implementation | Known gap |
 |---|---|---|---|---|---|---|
-| Clerk identity | ✅ SHIPPED | FULL | UNVERIFIED | E2 | auth/deps/users | missing required `azp` |
-| Video CRUD/privacy | ✅ SHIPPED | FULL | UNVERIFIED | E2 | video service/models | unlisted listing bug |
+| Clerk identity | ✅ SHIPPED | FULL | UNVERIFIED | E2 | auth/deps/users | live Clerk session still requires runtime verification |
+| Video CRUD/privacy | ✅ SHIPPED | FULL | UNVERIFIED | E2 | video service/models | upload/job concurrency |
 | Upload/store/queue | ✅ SHIPPED | FULL | UNVERIFIED | E2 | uploads/storage/queue | concurrency/idempotency |
 | Probe/package HLS | ✅ SHIPPED | FULL | UNVERIFIED | E2 | worker packager | generation ownership |
 | API HLS playback | ✅ SHIPPED | FULL | UNVERIFIED | E2 | video route/storage | segment inventory |
-| Web library/upload/watch | ✅ SHIPPED | FULL | UNVERIFIED | E2 | Next.js app routes | manual refresh/stale copy |
+| Web library/upload/watch | ✅ SHIPPED | FULL | UNVERIFIED | E2 | Next.js app routes | manual refresh/runtime smoke evidence |
 | Playback events | ✅ SHIPPED | PARTIAL governance | UNVERIFIED | E2 | event route/watch client | rate/retention |
 | Admin operations | ⚠️ CHANGE | FULL surface | UNVERIFIED | E0 auth | admin API/web | no admin role |
 | Local stack/smoke | ✅ SHIPPED | FULL | historical | E2 | Compose/Make/smoke | current rerun absent |
