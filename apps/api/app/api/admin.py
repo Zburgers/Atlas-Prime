@@ -12,7 +12,7 @@ from app.db.models import PlaybackEvent, Video, VideoProcessingJob
 from app.domain.status import VideoStatus
 from app.schemas.feed import RecommendationAdminResponse, RecommendationDebugResponse, RecommendationRequestSummaryResponse
 from app.schemas.search import SearchReindexResponse, SearchResponse
-from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminVideoDebugResponse, VideoResponse
+from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminVideoDebugResponse, RenditionDebugResponse, VideoDebugResponse
 from app.services import recommendation_logging, search as search_service
 from app.core import config
 from app.api.search import _video_list_item
@@ -67,7 +67,7 @@ async def ops_status(_user: AdminUserDep, processing_queue: ProcessingQueueDep) 
     )
 
 
-@router.get("/videos", response_model=list[VideoResponse])
+@router.get("/videos", response_model=list[VideoDebugResponse])
 async def list_admin_videos(
     session: SessionDep,
     _user: AdminUserDep,
@@ -122,8 +122,8 @@ async def video_debug(video_id: UUID, session: SessionDep, _user: AdminUserDep) 
         .limit(25)
     )
     return AdminVideoDebugResponse(
-        video=VideoResponse.model_validate(video),
-        renditions=list(video.renditions),
+        video=VideoDebugResponse.model_validate(video),
+        renditions=[RenditionDebugResponse.model_validate(rendition) for rendition in video.renditions],
         processing_jobs=sorted(video.processing_jobs, key=lambda job: job.created_at, reverse=True),
         recent_playback_events=list(events_result.scalars()),
     )

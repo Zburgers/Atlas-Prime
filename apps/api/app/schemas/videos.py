@@ -103,9 +103,6 @@ class VideoResponse(BaseModel):
     description: str | None
     privacy: VideoPrivacy
     status: VideoStatus
-    original_storage_key: str | None
-    hls_master_storage_key: str | None
-    thumbnail_storage_key: str | None
     duration_seconds: Decimal | None
     width: int | None
     height: int | None
@@ -119,6 +116,14 @@ class VideoResponse(BaseModel):
     failure_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class VideoDebugResponse(VideoResponse):
+    """Operator-only view of storage-backed video internals."""
+
+    original_storage_key: str | None
+    hls_master_storage_key: str | None
+    thumbnail_storage_key: str | None
 
 
 class VideoListItemResponse(BaseModel):
@@ -197,9 +202,14 @@ class RenditionResponse(BaseModel):
     video_codec: str | None
     segment_count: int | None
     output_size_bytes: int | None
-    playlist_storage_key: str | None
     status: RenditionStatus
     created_at: datetime
+
+
+class RenditionDebugResponse(RenditionResponse):
+    """Operator-only view of rendition storage internals."""
+
+    playlist_storage_key: str | None
 
 
 class VideoChapterInput(BaseModel):
@@ -235,10 +245,8 @@ class PlaybackResponse(BaseModel):
 class VideoUploadResponse(BaseModel):
     video: VideoResponse
     processing_job: ProcessingJobResponse
-    storage_key: str
     size_bytes: int
     content_type: str
-    celery_task_id: str
 
 
 class ErrorResponse(BaseModel):
@@ -255,8 +263,8 @@ class AdminJobResponse(ProcessingJobResponse):
 
 
 class AdminVideoDebugResponse(BaseModel):
-    video: VideoResponse
-    renditions: list[RenditionResponse]
+    video: VideoDebugResponse
+    renditions: list[RenditionDebugResponse]
     processing_jobs: list[ProcessingJobResponse]
     recent_playback_events: list[PlaybackEventResponse]
 

@@ -175,10 +175,8 @@ async def upload_video(
     return VideoUploadResponse(
         video=result.video,
         processing_job=result.processing_job,
-        storage_key=result.storage_key,
         size_bytes=result.size_bytes,
         content_type=result.content_type,
-        celery_task_id=result.celery_task_id,
     )
 
 

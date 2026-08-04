@@ -234,10 +234,17 @@ def test_private_video_is_owner_only(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Private cut"})
     video_id = created.json()["id"]
 
+    assert "original_storage_key" not in created.json()
+    assert "hls_master_storage_key" not in created.json()
+    assert "thumbnail_storage_key" not in created.json()
+
     owner_response = client.get(f"/videos/{video_id}", headers=_headers("owner"))
     other_response = client.get(f"/videos/{video_id}", headers=_headers("other"))
 
     assert owner_response.status_code == 200
+    assert "original_storage_key" not in owner_response.json()
+    assert "hls_master_storage_key" not in owner_response.json()
+    assert "thumbnail_storage_key" not in owner_response.json()
     assert other_response.status_code == 403
 
 
@@ -435,13 +442,13 @@ def test_upload_stores_original_and_queues_processing(client: TestClient) -> Non
     body = response.json()
     expected_key = f"originals/{video_id}/source.mp4"
     assert body["video"]["status"] == "queued"
-    assert body["video"]["original_storage_key"] == expected_key
+    assert "original_storage_key" not in body["video"]
     assert body["processing_job"]["status"] == "queued"
     assert body["processing_job"]["stage"] == "queued"
-    assert body["storage_key"] == expected_key
+    assert "storage_key" not in body
     assert body["size_bytes"] == len(data)
     assert body["content_type"] == "video/mp4"
-    assert body["celery_task_id"] == "task-123"
+    assert "celery_task_id" not in body
     assert storage.objects == [(expected_key, data, "video/mp4")]
     assert queue.jobs == [
         {
@@ -809,6 +816,8 @@ def test_admin_debug_includes_jobs_renditions_and_playback_events(client: TestCl
     assert debug.status_code == 200
     body = debug.json()
     assert body["video"]["id"] == video_id
+    assert body["video"]["original_storage_key"] == f"originals/{video_id}/source.mp4"
     assert body["processing_jobs"][0]["status"] == "queued"
     assert body["renditions"][0]["label"] == "360p"
+    assert body["renditions"][0]["playlist_storage_key"].endswith("360p/playlist.m3u8")
     assert body["recent_playback_events"][0]["event_type"] == "player_ready"
