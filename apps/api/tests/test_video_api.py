@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.models import Video, VideoRendition
+from app.db.models import Video, VideoProcessingJob, VideoRendition
 from app.db.session import get_session
 from app.api.deps import get_original_storage, get_processed_hls_storage, get_processing_queue
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
@@ -92,11 +92,19 @@ class FakeProcessingQueue:
     def __init__(self) -> None:
         self.jobs: list[dict[str, str]] = []
 
-    def enqueue_video_processing(self, *, video_id: UUID, job_id: UUID, original_storage_key: str) -> str:
+    def enqueue_video_processing(
+        self,
+        *,
+        video_id: UUID,
+        job_id: UUID,
+        generation: UUID,
+        original_storage_key: str,
+    ) -> str:
         self.jobs.append(
             {
                 "video_id": str(video_id),
                 "job_id": str(job_id),
+                "generation": str(generation),
                 "original_storage_key": original_storage_key,
             }
         )
@@ -452,11 +460,24 @@ def test_upload_stores_original_and_queues_processing(client: TestClient) -> Non
     assert body["size_bytes"] == len(data)
     assert body["content_type"] == "video/mp4"
     assert "celery_task_id" not in body
+    import asyncio
+
+    async def load_persisted_generation() -> tuple[str, str]:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None and video.active_processing_generation is not None
+            job = await session.get(VideoProcessingJob, UUID(body["processing_job"]["id"]))
+            assert job is not None
+            return str(video.active_processing_generation), str(job.generation)
+
+    active_generation, job_generation = asyncio.run(load_persisted_generation())
+    assert active_generation == job_generation == queue.jobs[0]["generation"]
     assert storage.objects == [(expected_key, data, "video/mp4")]
     assert queue.jobs == [
         {
             "video_id": video_id,
             "job_id": body["processing_job"]["id"],
+            "generation": active_generation,
             "original_storage_key": expected_key,
         }
     ]

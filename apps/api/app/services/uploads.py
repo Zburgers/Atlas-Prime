@@ -134,6 +134,8 @@ async def _queue_uploaded_video(
         generation=video.active_processing_generation,
         status=JobStatus.QUEUED.value,
     )
+    if video.active_processing_generation is None:
+        raise RuntimeError("queued upload is missing processing generation")
     video.status = VideoStatus.QUEUED.value
     session.add(job)
     await session.flush()
@@ -141,6 +143,7 @@ async def _queue_uploaded_video(
         celery_task_id = processing_queue.enqueue_video_processing(
             video_id=video.id,
             job_id=job.id,
+            generation=job.generation,
             original_storage_key=video.original_storage_key,
         )
     except Exception:

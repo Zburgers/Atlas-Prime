@@ -35,12 +35,20 @@ class ProcessingQueue:
         )
         self._celery.conf.task_default_queue = "media"
 
-    def enqueue_video_processing(self, *, video_id: UUID, job_id: UUID, original_storage_key: str) -> str:
+    def enqueue_video_processing(
+        self,
+        *,
+        video_id: UUID,
+        job_id: UUID,
+        generation: UUID,
+        original_storage_key: str,
+    ) -> str:
         result = self._celery.send_task(
             self.task_name,
             kwargs={
                 "video_id": str(video_id),
                 "job_id": str(job_id),
+                "generation": str(generation),
                 "original_storage_key": original_storage_key,
             },
             queue="media",
