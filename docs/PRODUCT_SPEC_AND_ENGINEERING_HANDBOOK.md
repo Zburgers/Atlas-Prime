@@ -56,9 +56,9 @@ The rollout branch resolves or partially resolves several original findings:
 
 | Change | Reconciled branch state | Evidence summary |
 |---|---|---|
-| C-001 admin authorization | PARTIAL | FastAPI admin routes use `AdminUserDep` backed by `ATLAS_ADMIN_CLERK_USER_IDS`; proxy/UI regression coverage still belongs in Plan 1 |
+| C-001 admin authorization | PARTIAL | FastAPI admin routes use `AdminUserDep` backed by `ATLAS_ADMIN_CLERK_USER_IDS`; API regression coverage is green at `bac7a89`, while the Next proxy remains transport-only and has no independent role gate |
 | C-002 unlisted discovery | RESOLVED | `list_visible_videos()` exposes only ready, public, moderation-approved videos to non-owners |
-| C-003 response internals | OPEN | normal API/frontend types still expose storage keys and Celery task IDs |
+| C-003 response internals | RESOLVED | product schemas redact storage keys/task IDs and explicit operator debug schemas retain them; API/frontend coverage is green at `fd62a20` and `d79b42f` |
 | C-004 upload idempotency | OPEN | upload remains read-then-write and accepts `uploading` as a starting state |
 | C-005 attempt ownership | PARTIAL | worker atomically claims queued job/video, but no generation lease or stale-finalization fence exists |
 | C-006 atomic publication | PARTIAL | partial HLS cleanup exists; uploads still target a shared deterministic prefix |
@@ -66,8 +66,8 @@ The rollout branch resolves or partially resolves several original findings:
 | C-008 active-worker deletion fence | OPEN | no tombstone/generation guard prevents post-delete recreation |
 | C-009 segment binding | OPEN | patterned segment paths are accepted without published inventory binding |
 | C-010 telemetry governance | OPEN | no admission rate, event dedupe identity, or retention job |
-| C-011 strict `azp` | OPEN | configured allowlist still accepts a missing `azp` |
-| C-012 stale watch copy | OPEN | watch UI still contains “D/E still own HLS generation” |
+| C-011 strict `azp` | RESOLVED | configured authorized-party allowlists reject missing/mismatched `azp` and normalize matching values; tests are green at `ced7472` |
+| C-012 stale watch copy | RESOLVED | watch UI uses user-safe lifecycle guidance and regression coverage removes sector-internal copy at `d33d456` |
 
 The branch also delivers post-MVP product slices absent from the original `main` audit, including channels/discovery, reactions/saves, Studio, comments, deterministic feeds and diagnostics, thumbnails, moderation, analytics, captions, subscriptions/history, playlists, richer playback events, expanded media outputs, chapters/timeline, signed redirect delivery, Meilisearch, accessibility verification, and caption transcript search.
 

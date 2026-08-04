@@ -13,7 +13,7 @@ const STATUS_LABELS: Record<VideoStatus, string> = {
 
 const STATUS_HINTS: Record<VideoStatus, string> = {
   draft: "Metadata exists. Upload an original video file to continue.",
-  uploading: "The API is receiving the original video.",
+  uploading: "Your video is uploading.",
   uploaded: "Your video is uploaded and ready for processing.",
   queued: "Processing has been queued. Playback will be available when processing finishes.",
   probing: "Your video is being inspected.",

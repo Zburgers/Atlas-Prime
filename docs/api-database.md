@@ -1,7 +1,7 @@
 # API and Database Contract
 
-Status: Sector B/F foundation plus Sector C upload path
-Last updated: 29-06-2026
+Status: Sector B/F foundation plus Sector C upload path; contract-boundary hardening reconciled
+Last updated: 05-08-2026
 
 ## Database Access
 
@@ -30,10 +30,19 @@ Last updated: 29-06-2026
 ## Auth and Access Control
 
 - Protected API requests accept a Clerk session token from `Authorization: Bearer <token>` or the Clerk `__session` cookie.
+- The operator identity source for this deployment is the comma-separated `ATLAS_ADMIN_CLERK_USER_IDS` environment allowlist. `AdminUserDep` performs the server-side membership check; a signed-in frontend account is not an operator grant.
 - `GET /me`, video mutations, processing enqueue, and admin routes require a valid Clerk identity.
 - `GET /videos`, `GET /videos/{video_id}`, processing status, playback metadata, and HLS proxy authorization allow anonymous requests only for `ready` videos with `public` or `unlisted` privacy.
 - Draft/uploading/uploaded/queued/probing/processing/failed videos remain owner-only regardless of privacy.
 - Development identity headers are disabled by default. Set `ATLAS_ALLOW_DEV_AUTH_HEADERS=true` only for local smoke/tests that intentionally use `X-Atlas-Dev-Clerk-User-Id`.
+
+## Product and operator response schemas
+
+Normal public and creator routes use product schemas (`VideoResponse`, `VideoListItemResponse`, `RenditionResponse`, and `VideoUploadResponse`). These contain domain state and API-owned delivery URLs only; they do not expose MinIO object keys or Celery task identifiers. This applies to create, list, detail, upload, status, and playback responses.
+
+Protected operator routes use explicit debug schemas (`VideoDebugResponse`, `RenditionDebugResponse`, and `AdminVideoDebugResponse`). They may expose storage-backed keys and processing diagnostics for `/admin/videos` and `/admin/videos/{video_id}/debug` only, and every admin route is protected by `AdminUserDep`.
+
+The Next.js backend proxy forwards the caller's Clerk credentials and remains a transport boundary. FastAPI is authoritative for operator authorization, response redaction, and 403 behavior; proxy access must not be treated as an independent role grant.
 
 ## Upload and Storage Contract
 

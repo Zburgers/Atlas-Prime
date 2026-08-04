@@ -46,7 +46,7 @@ test("watch page presents user-safe processing guidance", () => {
   const statusUi = fs.readFileSync(path.join(__dirname, "../app/components/status-ui.tsx"), "utf8");
 
   assert.doesNotMatch(watch, /D\/E still own HLS|Sector D owns/);
-  assert.doesNotMatch(statusUi, /D\/E still own HLS|Sector D owns|worker/);
+  assert.doesNotMatch(statusUi, /D\/E still own HLS|Sector D owns|worker|API-owned|The API is receiving/);
   assert.match(watch, /queued for processing/);
   assert.match(watch, /being processed/);
   assert.match(watch, /could not be processed/);

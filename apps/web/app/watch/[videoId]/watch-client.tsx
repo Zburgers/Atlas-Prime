@@ -309,7 +309,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
     });
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (data.fatal) {
-        setPlayerError("Playback failed while loading the API-owned HLS stream.");
+        setPlayerError("Playback failed while loading the video stream.");
         void recordPlaybackEvent("error", data.type);
       }
     });

@@ -22,12 +22,57 @@ Risk: Current-head release evidence is not green or self-contained.
 
 --
 
-ID: C-003,C-004,C-005,C-006,C-007,C-008,C-009,C-010,C-011,C-012
+ID: C-001
+Status: PARTIAL — API boundary resolved; proxy remains transport-only
+Severity: High
+Finding: Operator authorization must be enforced server-side and not inferred from frontend access.
+Evidence: `AdminUserDep` and `ATLAS_ADMIN_CLERK_USER_IDS`; API denial regression tests at `bac7a89`. Next proxy forwards credentials and relies on FastAPI, so no independent proxy role gate is claimed.
+Scope: Preserve backend fail-closed authorization; proxy/UI hardening requires a separately indexed task if owner requires duplicate enforcement.
+
+--
+
+ID: C-002
+Status: RESOLVED ON ROLLOUT BRANCH
+Severity: High
+Finding: Unlisted videos must remain direct-link readable without appearing in global discovery.
+Evidence: API regression tests at `bac7a89` cover anonymous and non-owner lists plus direct read/playback; implementation filters non-owner listings to public ready videos.
+Scope: Keep regression coverage in future route changes.
+
+--
+
+ID: C-003
+Status: RESOLVED ON ROLLOUT BRANCH
+Severity: Medium
+Finding: Product responses must not expose storage keys or Celery task identifiers.
+Evidence: Product/operator schema split at `fd62a20`; frontend caller and smoke coverage at `d79b42f`.
+Scope: Keep internal fields restricted to protected operator/debug schemas.
+
+--
+
+ID: C-004,C-005,C-006,C-007,C-008,C-009,C-010
 Status: OPEN OR PARTIAL
 Severity: Medium to High
-Finding: Remaining response-boundary, upload/job generation, atomic publication/deletion, segment inventory, telemetry governance, strict Clerk `azp`, and stale UI issues.
+Finding: Remaining upload/job generation, atomic publication/deletion, segment inventory, and telemetry governance issues.
 Evidence: `docs/PRODUCT_SPEC_AND_ENGINEERING_HANDBOOK.md` reconciliation addendum.
-Scope: Indexed Plans 1-4; do not implement out of order.
+Scope: Indexed Plans 2-4; do not implement out of order.
+
+--
+
+ID: C-011
+Status: RESOLVED ON ROLLOUT BRANCH
+Severity: High
+Finding: Configured Clerk authorized-party allowlists must reject missing or mismatched `azp` claims.
+Evidence: Fail-closed verification and tests at `ced7472`.
+Scope: Preserve strict behavior when `CLERK_AUTHORIZED_PARTIES` is non-empty.
+
+--
+
+ID: C-012
+Status: RESOLVED ON ROLLOUT BRANCH
+Severity: Medium
+Finding: Watch UI must not expose sector/process-internal ownership language.
+Evidence: User-safe status guidance and smoke assertions at `d33d456`.
+Scope: Keep copy user-safe as lifecycle states evolve.
 
 --
 
