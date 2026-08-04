@@ -16,14 +16,23 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, *, claimable: bool = True, updates: int = 1) -> None:
+    def __init__(self, *, claimable: bool = True, updates: int = 1, rowcounts: list[int] | None = None) -> None:
         self.calls: list[tuple[str, tuple[object, ...] | None]] = []
         self.claimable = claimable
         self.updates = updates
+        self.rowcounts = list(rowcounts or [])
+        self.rollbacks = 0
+        self.commits = 0
 
     @contextmanager
     def transaction(self):
-        yield self
+        try:
+            yield self
+        except BaseException:
+            self.rollbacks += 1
+            raise
+        else:
+            self.commits += 1
 
     def execute(self, query: str, params: tuple[object, ...] | None = None) -> FakeCursor:
         self.calls.append((query, params))
@@ -31,7 +40,8 @@ class FakeConnection:
             return FakeCursor(fetched={"id": "job-id"} if self.claimable else None, has_fetched=True)
         if query.lstrip().lower().startswith("select exists"):
             return FakeCursor()
-        return FakeCursor(rowcount=self.updates)
+        rowcount = self.rowcounts.pop(0) if self.rowcounts else self.updates
+        return FakeCursor(rowcount=rowcount)
 
 
 def test_mark_started_claims_only_a_queued_job(monkeypatch) -> None:
@@ -79,6 +89,60 @@ def test_stale_processing_update_rolls_back_before_stage_mutation(monkeypatch) -
         probe=MediaProbe(duration_seconds=1.0, width=640, height=360, video_codec="h264", audio_codec="aac", source_bitrate=1000, has_audio=True),
     ) is False
     assert len(connection.calls) == 1
+
+
+def test_started_second_fence_rolls_back_first_claim(monkeypatch) -> None:
+    connection = FakeConnection(rowcounts=[0])
+    repository = MediaRepository()
+    monkeypatch.setattr(repository, "_connect", lambda: _connection_context(connection))
+
+    assert repository.mark_started(video_id="video-id", job_id="job-id", generation="generation-id", worker_id="worker") is False
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
+    assert len(connection.calls) == 2
+
+
+def test_processing_stage_fence_rolls_back_video_update(monkeypatch) -> None:
+    connection = FakeConnection(rowcounts=[1, 0])
+    repository = MediaRepository()
+    monkeypatch.setattr(repository, "_connect", lambda: _connection_context(connection))
+
+    from media_worker.packager import MediaProbe
+
+    assert repository.mark_processing(
+        video_id="video-id", job_id="job-id", generation="generation-id",
+        probe=MediaProbe(duration_seconds=1.0, width=640, height=360, video_codec="h264", audio_codec="aac", source_bitrate=1000, has_audio=True),
+    ) is False
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
+
+
+def test_success_video_fence_rolls_back_terminal_job_and_artifacts(monkeypatch) -> None:
+    connection = FakeConnection(rowcounts=[1, 1, 1, 0])
+    repository = MediaRepository()
+    monkeypatch.setattr(repository, "_connect", lambda: _connection_context(connection))
+
+    assert repository.mark_succeeded(
+        video_id="video-id", job_id="job-id", generation="generation-id",
+        master_key="master", thumbnail_key="thumb", generated_thumbnail_keys=[], renditions=[],
+    ) is False
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
+
+
+def test_failure_video_fence_rolls_back_terminal_job(monkeypatch) -> None:
+    connection = FakeConnection(rowcounts=[1, 0])
+    repository = MediaRepository()
+    monkeypatch.setattr(repository, "_connect", lambda: _connection_context(connection))
+
+    from media_worker.repository import ProcessingFailure
+
+    assert repository.mark_failed(
+        video_id="video-id", job_id="job-id", generation="generation-id",
+        failure=ProcessingFailure(code="BROKEN", message="bad"),
+    ) is False
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
 
 
 def test_stale_success_is_ignored(monkeypatch) -> None:

@@ -17,7 +17,7 @@ Branch/Commit: docs/fullplatform-rollout (local, pending commit)
 - Alternatives considered: Automatic retries remain out of scope; bounded recovery is Plan 2.5.
 
 ## Validation
-- `docker compose run --rm --build worker pytest tests/test_repository.py -q` — 7 passed.
+- `docker compose run --rm --build worker pytest tests/test_repository.py -q` — 11 passed, including rollback assertions for each multi-step transition.
 - `PYTHONPATH=apps/api pytest -q apps/api/tests/test_studio.py apps/api/tests/test_video_api.py` — 40 passed.
 - `git diff --check` — pending final commit validation.
 
