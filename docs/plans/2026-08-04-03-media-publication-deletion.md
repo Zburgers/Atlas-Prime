@@ -107,12 +107,12 @@ Plan 2 is COMPLETE with an evidence SHA and the generation value is present in v
     <step>Write race tests for delete while queued, running, uploading, and immediately before worker finalize.</step>
     <step>Commit deleted_at/deletion_status pending and clear active generation before object cleanup starts.</step>
     <step>Make all normal reads/mutations treat tombstoned videos as missing; worker guards from Plan 2 must reject them.</step>
-    <step>On synchronous cleanup success delete/finalize related state and return 204; on failure retain failed tombstone and return 502.</step>
+    <step>After the tombstone is committed return 202 with an API-owned deletion status; enqueue cleanup, retain a failed tombstone on errors, and never report terminal success before all required cleanup is complete.</step>
     <step>Add an admin-only, idempotent reconciliation command for failed tombstones; do not resurrect content.</step>
   </steps>
   <verification>
     <command>docker compose run --rm --build api pytest tests/test_video_deletion.py -q</command>
-    <expected>PASS; deleted media cannot be read or recreated and cleanup failures remain retryable</expected>
+    <expected>PASS; deleted media is unreadable immediately, deletion status is observable, and cleanup failures remain retryable without resurrection</expected>
   </verification>
 </task>
 

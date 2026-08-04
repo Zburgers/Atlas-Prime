@@ -10,16 +10,9 @@
 
 ---
 
-## Entry Gate And Required Ruling
+## Entry Gate
 
-Plan 3 is COMPLETE. Owner ruling R-004 must be recorded in the handbook before Task 4.1. The ruling must provide:
-
-- raw playback-event retention days;
-- whether a one-way HMAC of client IP may be used only for rate limiting;
-- per-client/video events-per-minute limit;
-- which noisy events may be sampled.
-
-Recommended defaults for approval are 30 days, HMAC allowed with daily salt and never persisted in event rows, 120 events/minute/client/video, and progress pings sampled at the existing 15-second media-position cadence. Agents must not silently adopt these recommendations.
+Plan 3 must be COMPLETE before execution. R-004 is accepted and recorded in the handbook: retain raw events for 30 days, admit at most 120 events/minute/client/video, persist no IP address or derived IP identifier, and keep telemetry best-effort. Agents must implement this contract exactly; changing it requires a new owner decision.
 
 <task id="4.1" name="Add session and event identity">
   <description>Make event retries idempotent and attributable to a bounded playback session.</description>
@@ -141,6 +134,6 @@ Recommended defaults for approval are 30 days, HMAC allowed with daily salt and 
 
 ## Stop Conditions
 
-- Missing R-004 is a hard blocker, not permission for an agent-selected policy.
+- A missing Plan 3 exit or deviation from the recorded R-004 policy is a hard blocker, not permission for an agent-selected policy.
 - Do not persist raw IP addresses or make telemetry required for playback.
 - Any aggregate-definition change must preserve deterministic rebuild tests or be separately approved.

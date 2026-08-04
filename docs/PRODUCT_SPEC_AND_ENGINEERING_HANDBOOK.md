@@ -1,18 +1,18 @@
 # Atlas Prime — Product Specification and Engineering Handbook
 
 Document version: 1.1
-Last updated: 2026-08-04  
-Generated or audited by: repository handbook synchronization agent  
-Repository: `Zburgers/Atlas-Prime`  
-Authoritative branch: `main`  
-Verified branch commit: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`  
+Last updated: 2026-08-04
+Generated or audited by: repository handbook synchronization agent
+Repository: `Zburgers/Atlas-Prime`
+Authoritative branch: `main`
+Verified branch commit: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`
 Current authoritative branch commit after handbook merge: `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`
 Reconciled candidate branch: `docs/fullplatform-rollout`
 Reconciliation base commit before version 1.1 documentation: `65e23a0697091916f84b4b3b64953372730c7998`
-Production status: `UNVERIFIED`  
-Verified deployed commit: `UNVERIFIED`  
-Deployment verification: no production URL, release artifact, deployed revision endpoint, image digest, or authorized runtime evidence was found  
-Document confidence: `HIGH` for repository implementation; `LOW` for deployed runtime  
+Production status: `UNVERIFIED`
+Verified deployed commit: `UNVERIFIED`
+Deployment verification: no production URL, release artifact, deployed revision endpoint, image digest, or authorized runtime evidence was found
+Document confidence: `HIGH` for repository implementation; `LOW` for deployed runtime
 Confidentiality: repository-internal engineering documentation; contains no secret values
 
 ## Document contract
@@ -197,24 +197,24 @@ Navigation must remain honest. Internal implementation language such as “D/E s
 
 ### 4.1 Clerk identity and local user synchronization ✅ SHIPPED
 
-**Implementation completeness:** FULL  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
-**Actors:** authenticated creator.  
-**Preconditions:** Clerk issuer/JWKS configuration or explicitly enabled local smoke headers.  
-**Happy path:** bearer token or `__session` cookie is verified; `sub` maps to `users.clerk_user_id`; the user row is created or updated.  
-**Authorization:** API dependencies enforce identity before protected routes.  
-**Failure paths:** missing token returns 401; auth configuration failure returns a sanitized 500; invalid token returns 401.  
-**Evidence:** `apps/api/app/services/auth.py`, `apps/api/app/api/deps.py`, `apps/api/app/services/users.py`, `apps/api/tests/test_video_api.py`.  
+**Actors:** authenticated creator.
+**Preconditions:** Clerk issuer/JWKS configuration or explicitly enabled local smoke headers.
+**Happy path:** bearer token or `__session` cookie is verified; `sub` maps to `users.clerk_user_id`; the user row is created or updated.
+**Authorization:** API dependencies enforce identity before protected routes.
+**Failure paths:** missing token returns 401; auth configuration failure returns a sanitized 500; invalid token returns 401.
+**Evidence:** `apps/api/app/services/auth.py`, `apps/api/app/api/deps.py`, `apps/api/app/services/users.py`, `apps/api/tests/test_video_api.py`.
 **Known gap:** configured authorized parties do not require the `azp` claim to be present.
 
 ### 4.2 Video metadata lifecycle ✅ SHIPPED
 
-**Implementation completeness:** FULL  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
 Creators can create private drafts, list visible videos, read owned videos, patch title/description/privacy, inspect processing status, and delete the database row.
@@ -235,38 +235,38 @@ draft → uploading → uploaded → queued → probing → processing → ready
 
 ### 4.3 Original upload and queue dispatch ✅ SHIPPED
 
-**Implementation completeness:** FULL with reliability gaps  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL with reliability gaps
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
-**Actors:** owner only.  
-**Preconditions:** video status is `draft`, `uploading`, or `failed` under current code; supported extension/content type; size within `ATLAS_UPLOAD_MAX_BYTES`; lightweight container signature matches.  
-**Happy path:** upload is buffered, written to `originals/{video_id}/source.{ext}`, video advances to `uploaded`, job row is created, Celery task `media_worker.process_video` is dispatched, and video advances to `queued`.  
-**Failure paths:** validation or storage/queue failure marks the video `failed` with sanitized details.  
+**Actors:** owner only.
+**Preconditions:** video status is `draft`, `uploading`, or `failed` under current code; supported extension/content type; size within `ATLAS_UPLOAD_MAX_BYTES`; lightweight container signature matches.
+**Happy path:** upload is buffered, written to `originals/{video_id}/source.{ext}`, video advances to `uploaded`, job row is created, Celery task `media_worker.process_video` is dispatched, and video advances to `queued`.
+**Failure paths:** validation or storage/queue failure marks the video `failed` with sanitized details.
 **Evidence:** `apps/api/app/services/uploads.py`, `apps/api/app/services/storage.py`, `apps/api/app/services/processing_queue.py`, `scripts/smoke-devex.sh`.
 
 **Required change:** exactly one upload attempt must own a video transition; duplicate/concurrent upload requests must be rejected or idempotently coalesced.
 
 ### 4.4 Media processing and HLS packaging ✅ SHIPPED
 
-**Implementation completeness:** FULL with reliability gaps  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL with reliability gaps
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
-**Actors:** durable Celery worker.  
-**Preconditions:** original object, queued job, PostgreSQL, Redis, MinIO, ffprobe, FFmpeg.  
-**Happy path:** worker marks job running/video probing, downloads original, probes metadata, marks processing, produces rendition playlists/segments/master/thumbnail, uploads processed objects, replaces rendition rows, marks video ready, and marks job succeeded.  
+**Actors:** durable Celery worker.
+**Preconditions:** original object, queued job, PostgreSQL, Redis, MinIO, ffprobe, FFmpeg.
+**Happy path:** worker marks job running/video probing, downloads original, probes metadata, marks processing, produces rendition playlists/segments/master/thumbnail, uploads processed objects, replaces rendition rows, marks video ready, and marks job succeeded.
 **Evidence:** `workers/media/media_worker/celery_app.py`, `packager.py`, `repository.py`, `storage.py`, `workers/media/tests/test_packager.py`.
 
 **Required changes:** attempt ownership/lease, compare-and-set transitions, bounded retry/recovery, attempt-specific output staging, cleanup on partial failure, and deletion fencing.
 
 ### 4.5 Playback metadata and HLS proxy ✅ SHIPPED
 
-**Implementation completeness:** FULL with authorization-integrity gap  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL with authorization-integrity gap
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
 The browser obtains API-owned playback URLs from `GET /videos/{id}/playback`; hls.js or native HLS uses the same-origin Next.js proxy; FastAPI rechecks readiness and viewer access before reading MinIO objects.
@@ -277,9 +277,9 @@ The browser obtains API-owned playback URLs from `GET /videos/{id}/playback`; hl
 
 ### 4.6 Browser creator workflow ✅ SHIPPED
 
-**Implementation completeness:** FULL for MVP loop  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL for MVP loop
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
 The web app exposes library, upload, status/watch, HLS playback, and local API status. Upload progress is phase-level rather than byte-level. Processing refresh is manual rather than automatic polling.
@@ -288,9 +288,9 @@ The web app exposes library, upload, status/watch, HLS playback, and local API s
 
 ### 4.7 Playback telemetry ✅ SHIPPED
 
-**Implementation completeness:** FULL ingestion, PARTIAL governance  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL ingestion, PARTIAL governance
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
 Readable videos accept player-ready, play, pause, error, unsupported, buffering, and quality-change events. The watch client treats telemetry as non-blocking.
@@ -299,20 +299,20 @@ Readable videos accept player-ready, play, pause, error, unsupported, buffering,
 
 ### 4.8 Operator observability portal ⚠️ CHANGE
 
-**Implementation completeness:** FULL surface, INVALID authorization boundary  
-**Runtime state:** UNVERIFIED  
-**Evidence strength:** E0 against “admin protected” documentation  
+**Implementation completeness:** FULL surface, INVALID authorization boundary
+**Runtime state:** UNVERIFIED
+**Evidence strength:** E0 against “admin protected” documentation
 **Confidence:** HIGH
 
-**Current behavior:** any valid authenticated user can call `/admin/ops`, `/admin/videos`, `/admin/jobs`, and `/admin/videos/{id}/debug`; `/admin` is client-gated only by sign-in.  
-**Target behavior:** only a defined operator/admin principal may access global operational data; enforcement must exist in FastAPI and at the Next.js route/proxy boundary.  
+**Current behavior:** any valid authenticated user can call `/admin/ops`, `/admin/videos`, `/admin/jobs`, and `/admin/videos/{id}/debug`; `/admin` is client-gated only by sign-in.
+**Target behavior:** only a defined operator/admin principal may access global operational data; enforcement must exist in FastAPI and at the Next.js route/proxy boundary.
 **Evidence:** `apps/api/app/api/admin.py`, `apps/web/app/admin/page.tsx`, `apps/web/app/admin/admin-dashboard.tsx`, generic proxy route.
 
 ### 4.9 Local stack, tests, and vertical smoke ✅ SHIPPED
 
-**Implementation completeness:** FULL local harness  
-**Runtime state:** historically validated; current HEAD rerun UNVERIFIED  
-**Evidence strength:** E2  
+**Implementation completeness:** FULL local harness
+**Runtime state:** historically validated; current HEAD rerun UNVERIFIED
+**Evidence strength:** E2
 **Confidence:** HIGH
 
 `compose.yaml`, `Makefile`, `.env.example`, Dockerfiles, pytest suites, Node tests, worker tests, and `scripts/smoke-devex.sh` implement a clean local path.
@@ -396,7 +396,7 @@ Required hardening:
 
 ### C-001 — Define and enforce the operator/admin role ⚠️ CHANGE
 
-**Current behavior:** every authenticated user is accepted by admin endpoints.  
+**Current behavior:** every authenticated user is accepted by admin endpoints.
 **Target behavior:** admin/operator identity is explicit and enforced server-side.
 
 Constraints:
@@ -418,7 +418,7 @@ Success criteria:
 
 ### C-002 — Correct unlisted discovery semantics ⚠️ CHANGE
 
-**Current behavior:** `list_visible_videos()` treats both `public` and `unlisted` ready videos as publicly listable.  
+**Current behavior:** `list_visible_videos()` treats both `public` and `unlisted` ready videos as publicly listable.
 **Target behavior:** anonymous and non-owner lists include `public` ready videos only; unlisted remains readable by direct ID/link.
 
 Success criteria:
@@ -449,7 +449,7 @@ Compatibility:
 
 ### C-004 — Make original upload idempotent and race-safe ⚠️ CHANGE
 
-**Current behavior:** `uploading` is accepted as an uploadable state and transition/storage/job side effects are not claimed atomically.  
+**Current behavior:** `uploading` is accepted as an uploadable state and transition/storage/job side effects are not claimed atomically.
 **Target behavior:** only one request owns an upload generation; retries are either idempotent or return 409.
 
 Required engineering:
@@ -462,7 +462,7 @@ Required engineering:
 
 ### C-005 — Add processing attempt ownership and stale-job recovery ⚠️ CHANGE
 
-**Current behavior:** late-ack Celery tasks update job/video state without conditional ownership.  
+**Current behavior:** late-ack Celery tasks update job/video state without conditional ownership.
 **Target behavior:** every transition requires the active attempt/lease token.
 
 Required engineering:
@@ -486,7 +486,7 @@ Publish database-visible manifest keys only after complete upload and transactio
 
 ### C-007 — Implement durable end-to-end video deletion ⚠️ CHANGE
 
-**Current behavior:** database row only.  
+**Current behavior:** database row only.
 **Target behavior:** deletion is an explicit state/workflow covering original and processed objects, related rows, retry state, failure visibility, and reconciliation.
 
 Open ruling required: synchronous terminal delete versus asynchronous `deleting` state.
@@ -524,114 +524,132 @@ Status: non-executable overview. Use `docs/plans/README.md` and its indexed plan
 
 ### Phase 1 — Authorization and contract boundary
 
-**Goal:** eliminate cross-account/global data exposure and misleading public contracts.  
-**Includes:** C-001, C-002, C-003, C-011, C-012.  
-**Why now:** these are externally reachable correctness and confidentiality boundaries.  
-**Likely files:** API admin/video routes, auth service/dependencies, response schemas, web proxy, admin page, frontend API types/tests.  
-**Security constraints:** fail closed; backend remains authoritative.  
-**Suggested agent allocation:** one backend/security agent plus one frontend integration agent.  
+**Goal:** eliminate cross-account/global data exposure and misleading public contracts.
+**Includes:** C-001, C-002, C-003, C-011, C-012.
+**Why now:** these are externally reachable correctness and confidentiality boundaries.
+**Likely files:** API admin/video routes, auth service/dependencies, response schemas, web proxy, admin page, frontend API types/tests.
+**Security constraints:** fail closed; backend remains authoritative.
+**Suggested agent allocation:** one backend/security agent plus one frontend integration agent.
 **Exit gate:** non-admin cannot access admin data; unlisted is not discoverable; normal responses contain no storage/queue internals; auth tests pass.
 
 ### Phase 2 — Upload and job idempotency
 
-**Goal:** make upload and Celery redelivery safe.  
-**Includes:** C-004 and C-005.  
-**Dependencies:** Phase 1 response contracts only; schema migration planning.  
-**Schema work:** attempt/idempotency/lease fields and active-job uniqueness strategy.  
-**Operational constraints:** no unbounded retries; safe recovery after process death.  
-**Suggested allocation:** one API/database agent and one worker/queue agent with shared migration contract.  
+**Goal:** make upload and Celery redelivery safe.
+**Includes:** C-004 and C-005.
+**Dependencies:** Phase 1 response contracts only; schema migration planning.
+**Schema work:** attempt/idempotency/lease fields and active-job uniqueness strategy.
+**Operational constraints:** no unbounded retries; safe recovery after process death.
+**Suggested allocation:** one API/database agent and one worker/queue agent with shared migration contract.
 **Exit gate:** concurrent upload and duplicate/redelivered task tests prove one authoritative generation.
 
 ### Phase 3 — Atomic media publication and deletion
 
-**Goal:** prevent orphaned, mixed-generation, or recreated media.  
-**Includes:** C-006, C-007, C-008, C-009.  
-**Dependencies:** processing generation model from Phase 2.  
-**Storage work:** delete keys/prefixes; staging/promotion; reconciliation records.  
-**Rollback/recovery:** failed cleanup remains visible and retryable; no false 204 completion.  
-**Suggested allocation:** two agents—worker/storage and API/domain—with a shared end-to-end race suite.  
+**Goal:** prevent orphaned, mixed-generation, or recreated media.
+**Includes:** C-006, C-007, C-008, C-009.
+**Dependencies:** processing generation model from Phase 2.
+**Storage work:** delete keys/prefixes; staging/promotion; reconciliation records.
+**Rollback/recovery:** failed cleanup remains visible and retryable; no false 204 completion.
+**Suggested allocation:** two agents—worker/storage and API/domain—with a shared end-to-end race suite.
 **Exit gate:** failure-on-Nth-upload, delete-while-queued, delete-while-processing, delete-before-finalize, and stale segment tests pass.
 
 ### Phase 4 — Telemetry governance
 
-**Goal:** retain useful playback diagnostics without an anonymous database-exhaustion path.  
-**Includes:** C-010.  
-**Dependencies:** operator role and durable background scheduling/recovery conventions.  
-**Open product inputs:** retention period, sampling policy, privacy/IP policy.  
-**Suggested allocation:** one API/data agent.  
+**Goal:** retain useful playback diagnostics without an anonymous database-exhaustion path.
+**Includes:** C-010.
+**Dependencies:** operator role and durable background scheduling/recovery conventions.
+**Open product inputs:** retention period, sampling policy, privacy/IP policy.
+**Suggested allocation:** one API/data agent.
 **Exit gate:** rate-limit, duplicate, retention, and public playback regression tests pass.
 
 ### Phase 5 — Current-head verification and deployment contract
 
-**Goal:** turn repository evidence into repeatable release evidence.  
-**Scope:** rerun `make test`, `make lint`, and `make smoke`; verify GitHub Actions execution; define a revision/version endpoint or build metadata; document a self-hosted deployment only when an actual deployment is approved.  
-**Status:** validation work is required; a production deployment itself is not yet approved by the MVP documents.  
+**Goal:** turn repository evidence into repeatable release evidence.
+**Scope:** rerun `make test`, `make lint`, and `make smoke`; verify GitHub Actions execution; define a revision/version endpoint or build metadata; document a self-hosted deployment only when an actual deployment is approved.
+**Status:** validation work is required; a production deployment itself is not yet approved by the MVP documents.
 **Exit gate:** current authoritative SHA has attributable green checks; any deployed runtime reports its exact revision.
 
 ## 11. Decision log
 
 ### D-001
 
-Date: 2026-06-28  
-Status: ACTIVE  
-Decision: Atlas Prime is VOD-first and learning-first.  
-Rationale: prove the full media lifecycle before distributed/product expansion.  
+Date: 2026-06-28
+Status: ACTIVE
+Decision: Atlas Prime is VOD-first and learning-first.
+Rationale: prove the full media lifecycle before distributed/product expansion.
 Implementation consequence: live, DRM, payments, recommendations, and mobile remain out of scope.
 
 ### D-002
 
-Date: 2026-06-28  
-Status: ACTIVE  
-Decision: Next.js + FastAPI + PostgreSQL/SQLAlchemy/Alembic + Redis/Celery + Clerk + MinIO + FFmpeg/ffprobe + hls.js.  
+Date: 2026-06-28
+Status: ACTIVE
+Decision: Next.js + FastAPI + PostgreSQL/SQLAlchemy/Alembic + Redis/Celery + Clerk + MinIO + FFmpeg/ffprobe + hls.js.
 Implementation consequence: changes require explicit owner approval and ADR-level record.
 
 ### D-003
 
-Date: 2026-06-28  
-Status: ACTIVE  
+Date: 2026-06-28
+Status: ACTIVE
 Decision: new videos default to private and non-ready video is owner-only.
 
 ### D-004
 
-Date: 2026-06-28  
-Status: ACTIVE  
+Date: 2026-06-28
+Status: ACTIVE
 Decision: MVP upload is browser → FastAPI → MinIO.
 
 ### D-005
 
-Date: 2026-06-28  
-Status: ACTIVE  
+Date: 2026-06-28
+Status: ACTIVE
 Decision: MVP playback is browser/hls.js → API-owned HLS proxy → private MinIO.
 
 ### D-006
 
-Date: 2026-06-29  
-Status: ACTIVE  
+Date: 2026-06-29
+Status: ACTIVE
 Decision: local/CI smoke may temporarily enable development auth headers; normal environments must not.
 
 ### D-007
 
-Date: 2026-08-04  
-Status: ACTIVE  
+Date: 2026-08-04
+Status: ACTIVE
 Decision: `docs/00-ground-truth-mvp-spec.md` remains normative for MVP scope; this handbook is canonical for reconciled current implementation, drift, and future maintenance.
 
 ### D-008
 
-Date: 2026-08-04  
-Status: ACTIVE  
+Date: 2026-08-04
+Status: ACTIVE
 Decision: no feature is considered production-verified until attributable deployment evidence exists.
 
 ### D-009
 
-Date: 2026-08-04  
-Status: ACTIVE  
+Date: 2026-08-04
+Status: ACTIVE
 Decision: open reliability/security issues #2–#10 are tracked as required changes, not as proof that the affected feature is absent.
 
 ### D-010
 
-Date: 2026-08-04  
-Status: ACTIVE  
+Date: 2026-08-04
+Status: ACTIVE
 Decision: historical smoke evidence is retained, but current-head validation remains unverified until rerun.
+
+### D-011
+
+Date: 2026-08-05
+Status: ACTIVE
+Decision: operator authorization uses the `ATLAS_ADMIN_CLERK_USER_IDS` environment allowlist; server-side `AdminUserDep` enforcement is authoritative.
+
+### D-012
+
+Date: 2026-08-05
+Status: ACTIVE
+Decision: video deletion is asynchronous. The API commits an immediate tombstone and makes the video unreadable, returns an accepted deletion status, and completes cleanup through a retryable, observable workflow without claiming terminal success prematurely.
+
+### D-013
+
+Date: 2026-08-05
+Status: ACTIVE
+Decision: playback telemetry is retained for 30 days, admitted at no more than 120 events per minute per client/video, and persists no IP address or derived IP identifier. Ephemeral admission state may be used without becoming event data.
 
 ## 12. Candidate product ideas
 
@@ -652,20 +670,20 @@ Promotion to `BUILD` requires explicit owner approval, scope, success criteria, 
 
 ### R-001 — Canonical maximum upload size
 
-Current implementation default: `104857600` bytes (100 MiB) in Compose.  
+Current implementation default: `104857600` bytes (100 MiB) in Compose.
 Question: is 100 MiB the approved MVP product limit or only a local default?
 
-### R-002 — Operator identity source
+### R-002 — Operator identity source — DECIDED
 
-Question: should operator access be derived from Clerk metadata/organization claims, an environment allowlist, or a database role?
+Decision: use the `ATLAS_ADMIN_CLERK_USER_IDS` environment allowlist for the current deployment model. Backend `AdminUserDep` remains authoritative; frontend sign-in checks are not an authorization substitute.
 
-### R-003 — Deletion completion semantics
+### R-003 — Deletion completion semantics — DECIDED
 
-Question: should `DELETE /videos/{id}` wait for all storage cleanup, or return an asynchronous deletion resource/state?
+Decision: deletion is asynchronous. `DELETE /videos/{id}` creates a durable deletion state/tombstone and returns an accepted deletion response; the video becomes unreadable immediately. Cleanup and retries complete through the deletion workflow, with an owner/admin status surface and no false terminal-success response.
 
-### R-004 — Playback telemetry retention
+### R-004 — Playback telemetry retention — DECIDED
 
-Question: how long may raw events be retained, and may IP-derived rate-limit state be stored?
+Decision: retain raw playback telemetry for 30 days; admit at most 120 events per minute per client/video; do not persist IP addresses or derived IP identifiers. Telemetry remains best-effort and must never block playback.
 
 ---
 
@@ -1002,25 +1020,25 @@ The media path does continue without an interactive LLM/agent session. It depend
 
 ### Clerk
 
-Purpose: user authentication.  
-Credentials/config: publishable key, issuer/JWKS, authorized parties, secret key variable names.  
-Failure behavior: protected requests fail with sanitized auth errors.  
+Purpose: user authentication.
+Credentials/config: publishable key, issuer/JWKS, authorized parties, secret key variable names.
+Failure behavior: protected requests fail with sanitized auth errors.
 Current status: implemented; deployed configuration unverified.
 
 ### MinIO/S3
 
-Purpose: private original and processed media.  
-Buckets: originals and processed, bootstrapped private.  
+Purpose: private original and processed media.
+Buckets: originals and processed, bootstrapped private.
 Current status: upload/read implemented; deletion and lifecycle management absent.
 
 ### FFmpeg/ffprobe
 
-Purpose: probe, transcode, package HLS, generate thumbnail.  
+Purpose: probe, transcode, package HLS, generate thumbnail.
 Current status: implemented through worker; version/runtime unverified outside recorded local smoke.
 
 ### Redis/Celery
 
-Purpose: processing dispatch, result backend, worker/queue inspection.  
+Purpose: processing dispatch, result backend, worker/queue inspection.
 Current status: implemented; retry/idempotency semantics incomplete.
 
 ## 25. Deployment and infrastructure
@@ -1181,7 +1199,7 @@ Observed conventions:
 
 ### 2026-08-04 — Version 1.0
 
-Verified branch SHA: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`  
+Verified branch SHA: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`
 Verified deployed SHA: `UNVERIFIED`
 
 Changes:

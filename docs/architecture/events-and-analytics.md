@@ -18,6 +18,8 @@ Watch time is currently the sum of `video_views.position_seconds` for counted vi
 
 ## Playback telemetry
 
+Raw playback telemetry is retained for 30 days. Admission is capped at 120 events per minute per client/video. No IP address or derived IP identifier is persisted; any ephemeral counter state is operational admission state only and is not exposed as event data.
+
 The watch client records player readiness, play, pause, seek, buffering start/end, ended, HLS quality changes, and fatal playback errors through `POST /videos/{video_id}/events`. Progress pings are emitted no more than once per 15 seconds of media position, so they remain useful raw diagnostic signals without writing an event for every browser time update.
 
 Playback events include the originating recommendation request ID when present. This keeps discovery results joinable to actual viewing behavior. They are not yet used to calculate creator watch-time aggregates; that remains an explicit future aggregation change.

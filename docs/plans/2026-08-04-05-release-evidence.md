@@ -24,7 +24,7 @@ Plans 1-4 are COMPLETE with evidence SHAs. Working tree is preserved and the can
   </files>
   <steps>
     <step>Write a web test for smoke/dev-auth startup with no real Clerk secret.</step>
-    <step>Choose one explicit CI-only mechanism: inject a syntactically valid non-secret Clerk test publishable key supplied by repository variable, or render the local dev-auth shell without ClerkProvider when smoke mode is explicitly enabled.</step>
+    <step>Implement the selected CI-only mechanism: when an explicit CI smoke-mode flag is enabled, render the local dev-auth shell without ClerkProvider; normal local and production modes remain Clerk-backed and fail closed when Clerk configuration is absent.</step>
     <step>Never embed a real key, enable dev auth by default, or weaken normal Clerk-backed startup.</step>
     <step>Run the exact local smoke environment used by CI.</step>
   </steps>
