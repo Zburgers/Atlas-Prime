@@ -43,8 +43,9 @@ class MediaRepository:
                     updated = conn.execute(
                         """update videos set status = 'probing', failure_code = null,
                         failure_message = null, updated_at = now()
-                        where id = %s and active_processing_generation = %s and status = 'queued'""",
-                        (video_id, generation),
+                        where id = %s and active_processing_generation = %s and status = 'queued'
+                          and exists (select 1 from video_processing_jobs where id = %s and video_id = videos.id and generation = %s and status = 'running')""",
+                        (video_id, generation, job_id, generation),
                     )
                     if updated.rowcount != 1:
                         raise _FenceLost
@@ -130,8 +131,9 @@ class MediaRepository:
                         """update videos set status = 'ready', hls_master_storage_key = %s,
                         thumbnail_storage_key = coalesce(%s, thumbnail_storage_key), failure_code = null,
                         failure_message = null, updated_at = now()
-                        where id = %s and active_processing_generation = %s""",
-                        (master_key, thumbnail_key if not custom_thumbnail_exists else None, video_id, generation),
+                        where id = %s and active_processing_generation = %s
+                          and exists (select 1 from video_processing_jobs where id = %s and video_id = videos.id and generation = %s and status = 'succeeded')""",
+                        (master_key, thumbnail_key if not custom_thumbnail_exists else None, video_id, generation, job_id, generation),
                     )
                     if updated.rowcount != 1:
                         raise _FenceLost
@@ -156,8 +158,9 @@ class MediaRepository:
                     updated = conn.execute(
                         """update videos set status = 'failed', failure_code = %s,
                         failure_message = %s, updated_at = now()
-                        where id = %s and active_processing_generation = %s""",
-                        (failure.code, safe_message, video_id, generation),
+                        where id = %s and active_processing_generation = %s
+                          and exists (select 1 from video_processing_jobs where id = %s and video_id = videos.id and generation = %s and status = 'failed')""",
+                        (failure.code, safe_message, video_id, generation, job_id, generation),
                     )
                     if updated.rowcount != 1:
                         raise _FenceLost
