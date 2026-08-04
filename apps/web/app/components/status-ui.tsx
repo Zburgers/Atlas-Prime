@@ -14,16 +14,16 @@ const STATUS_LABELS: Record<VideoStatus, string> = {
 const STATUS_HINTS: Record<VideoStatus, string> = {
   draft: "Metadata exists. Upload an original video file to continue.",
   uploading: "The API is receiving the original video.",
-  uploaded: "The original is stored and ready to be queued.",
-  queued: "Processing has been queued. Sector D owns the worker path.",
-  probing: "The worker is inspecting media metadata.",
-  processing: "The worker is generating HLS output.",
+  uploaded: "Your video is uploaded and ready for processing.",
+  queued: "Processing has been queued. Playback will be available when processing finishes.",
+  probing: "Your video is being inspected.",
+  processing: "Your video is being prepared for playback.",
   ready: "Playback metadata is available.",
-  failed: "The backend marked this video failed. Check the message below.",
+  failed: "Your video could not be processed. Check the message below.",
 };
 
 const STAGE_LABELS: Record<NonNullable<ProcessingStatus["latest_job"]>["stage"], string> = {
-  queued: "Waiting for a worker",
+  queued: "Waiting to start",
   downloading: "Downloading the original",
   probing: "Inspecting media",
   packaging: "Generating HLS renditions",

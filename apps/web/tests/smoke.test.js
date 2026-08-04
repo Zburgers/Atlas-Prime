@@ -38,3 +38,18 @@ test("upload and Studio callers use redacted product contracts", () => {
   assert.match(studio, /response\.items/);
   assert.doesNotMatch(studio, /storage_key|celery_task_id/);
 });
+
+test("watch page presents user-safe processing guidance", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const watch = fs.readFileSync(path.join(__dirname, "../app/watch/[videoId]/watch-client.tsx"), "utf8");
+  const statusUi = fs.readFileSync(path.join(__dirname, "../app/components/status-ui.tsx"), "utf8");
+
+  assert.doesNotMatch(watch, /D\/E still own HLS|Sector D owns/);
+  assert.doesNotMatch(statusUi, /D\/E still own HLS|Sector D owns|worker/);
+  assert.match(watch, /queued for processing/);
+  assert.match(watch, /being processed/);
+  assert.match(watch, /could not be processed/);
+  assert.match(statusUi, /const failureMessage = processingStatus\?\.failure_message \|\| video\.failure_message/);
+  assert.match(statusUi, /failureMessage \? <p className="errorText">\{failureMessage\}<\/p>/);
+});

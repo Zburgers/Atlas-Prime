@@ -23,6 +23,22 @@ import {
 const VIEW_COUNT_THRESHOLD_SECONDS = 5;
 const PROGRESS_PING_INTERVAL_SECONDS = 15;
 
+function playbackStatusGuidance(status: ProcessingStatus["video_status"] | Video["status"] | null | undefined) {
+  switch (status) {
+    case "queued":
+      return "Your video is queued for processing. Playback will be available when processing finishes.";
+    case "probing":
+    case "processing":
+      return "Your video is being processed. Playback will be available when processing finishes.";
+    case "ready":
+      return "Playback is ready. Refresh if the player does not appear.";
+    case "failed":
+      return "This video could not be processed. Check the status details for the available next step.";
+    default:
+      return "Playback is not ready yet. Refresh this page after processing completes.";
+  }
+}
+
 export function WatchClient({ videoId, recommendationRequestId }: { videoId: string; recommendationRequestId?: string }) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -361,7 +377,7 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
           {!loading && !error && !playback?.master_playlist_url ? (
             <div className="playerPlaceholder">
               <h2>Playback is not ready</h2>
-              <p>D/E still own HLS generation and proxy delivery. This page will play once the API returns a ready playlist.</p>
+              <p>{playbackStatusGuidance(status?.video_status ?? video?.status)}</p>
             </div>
           ) : null}
         </div>
