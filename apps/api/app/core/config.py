@@ -73,6 +73,15 @@ def upload_max_bytes() -> int:
         return 100 * 1024 * 1024
 
 
+def processing_stale_seconds() -> int:
+    """Age after which an operator may explicitly recover a running job."""
+    raw = env("ATLAS_PROCESSING_STALE_SECONDS", "900")
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        return 900
+
+
 def celery_broker_url() -> str:
     return env("CELERY_BROKER_URL", env("REDIS_URL", "redis://redis:6379/0"))
 

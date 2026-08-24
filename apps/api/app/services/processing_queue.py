@@ -26,6 +26,9 @@ class QueueInspection:
 
 class ProcessingQueue:
     task_name = "media_worker.process_video"
+    # Recovery deliberately has no Celery task: an operator must run the
+    # bounded database command with --apply before a job can be failed.
+    stale_recovery_command = "app.commands.recover_stale_jobs"
 
     def __init__(self) -> None:
         self._celery = Celery(
