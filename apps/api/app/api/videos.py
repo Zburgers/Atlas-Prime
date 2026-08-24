@@ -50,6 +50,7 @@ from app.services import reactions as reactions_service
 from app.services import uploads as upload_service
 from app.services import videos as video_service
 from app.services import subscriptions as subscription_service
+from app.services import telemetry_admission
 from app.services.storage import HlsObjectNotFoundError
 from app.core import config
 
@@ -366,6 +367,28 @@ async def record_playback_event(
             )
         response.status_code = status.HTTP_200_OK
         return existing
+
+    try:
+        await telemetry_admission.admit_playback_event(
+            video_id=requested_video_id,
+            user_id=getattr(user, "id", None),
+            playback_session_id=payload.playback_session_id,
+        )
+    except telemetry_admission.TelemetryAdmissionLimitExceeded:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"error": "RateLimited", "message": "Playback telemetry rate limit exceeded"},
+        ) from None
+    except telemetry_admission.TelemetryAdmissionUnavailable as exc:
+        logger.warning(
+            "sector=G stage=telemetry_admission video_id=%s error=%s",
+            requested_video_id,
+            exc.__class__.__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Playback telemetry is temporarily unavailable"},
+        ) from None
 
     event = PlaybackEvent(
         user_id=getattr(user, "id", None),

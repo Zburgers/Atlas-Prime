@@ -1,8 +1,10 @@
 from collections.abc import AsyncGenerator, Iterator
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import select
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -13,6 +15,57 @@ from app.db.base import Base
 from app.db.models import PlaybackEvent, Video, VideoRendition
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
+from app.services import telemetry_admission
+
+
+class FakePipeline:
+    def __init__(self, client: "FakeRedis", *, transaction: bool) -> None:
+        self.client = client
+        self.transaction = transaction
+        self.commands: list[tuple[str, str, int | None]] = []
+
+    def incr(self, key: str) -> "FakePipeline":
+        self.commands.append(("incr", key, None))
+        return self
+
+    def expire(self, key: str, seconds: int) -> "FakePipeline":
+        self.commands.append(("expire", key, seconds))
+        return self
+
+    async def execute(self) -> list[int | bool]:
+        if not self.transaction:
+            raise AssertionError("admission must use a transactional Redis pipeline")
+        results: list[int | bool] = []
+        for command, key, seconds in self.commands:
+            if command == "incr":
+                self.client.counters[key] = self.client.counters.get(key, 0) + 1
+                results.append(self.client.counters[key])
+            else:
+                assert seconds is not None
+                self.client.expirations[key] = seconds
+                results.append(True)
+        return results
+
+    async def __aenter__(self) -> "FakePipeline":
+        return self
+
+    async def __aexit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        return None
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.counters: dict[str, int] = {}
+        self.expirations: dict[str, int] = {}
+        self.transaction_flags: list[bool] = []
+        self.closed = False
+
+    def pipeline(self, *, transaction: bool) -> FakePipeline:
+        self.transaction_flags.append(transaction)
+        return FakePipeline(self, transaction=transaction)
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 @pytest.fixture()
@@ -54,6 +107,13 @@ def client() -> Iterator[TestClient]:
 @pytest.fixture(autouse=True)
 def enable_dev_auth_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_ALLOW_DEV_AUTH_HEADERS", "true")
+
+
+@pytest.fixture(autouse=True)
+def fake_telemetry_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
+    client = FakeRedis()
+    monkeypatch.setattr(videos_api.telemetry_admission, "redis_client_factory", lambda: client)
+    return client
 
 
 def _headers(user_id: str = "user_123", email: str = "user@example.com") -> dict[str, str]:
@@ -166,7 +226,11 @@ def test_private_video_impression_and_view_require_access(client: TestClient) ->
     assert owner_view.json()["view_count"] == 1
 
 
-def test_playback_event_identity_is_returned_and_retry_is_idempotent(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_playback_event_identity_is_returned_and_retry_is_idempotent(
+    client: TestClient,
+    fake_telemetry_redis: FakeRedis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     video = client.post("/videos", headers=_headers("owner"), json={"title": "Identified playback"}).json()
     _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
     payload = {
@@ -191,6 +255,7 @@ def test_playback_event_identity_is_returned_and_retry_is_idempotent(client: Tes
     assert retry_body["id"] == first_body["id"]
     assert retry_body["event_id"] == first_body["event_id"]
     assert record_history.await_count == 1
+    assert sum(fake_telemetry_redis.counters.values()) == 1
 
 
 def test_same_playback_session_accepts_distinct_event_ids(client: TestClient) -> None:
@@ -243,3 +308,97 @@ def test_playback_event_identity_columns_are_required_and_event_id_is_unique() -
     assert table.c.playback_session_id.nullable is False
     assert table.c.event_id.nullable is False
     assert any(constraint.name == "uq_playback_events_event_id" for constraint in table.constraints)
+
+
+def test_playback_event_admission_boundary_rejects_121st_event_without_a_row(
+    client: TestClient,
+    fake_telemetry_redis: FakeRedis,
+) -> None:
+    video = client.post("/videos", headers=_headers("boundary-owner"), json={"title": "Admission boundary"}).json()
+    _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
+    playback_session_id = str(uuid4())
+
+    responses = [
+        client.post(
+            f"/videos/{video['id']}/events",
+            json={"playback_session_id": playback_session_id, "event_id": str(uuid4()), "event_type": "player_ready"},
+        )
+        for _ in range(121)
+    ]
+
+    assert all(response.status_code == 201 for response in responses[:120])
+    assert responses[120].status_code == 429
+    assert responses[120].json() == {"detail": {"error": "RateLimited", "message": "Playback telemetry rate limit exceeded"}}
+    assert sum(fake_telemetry_redis.counters.values()) == 121
+
+    async def count_events() -> int:
+        async with app.state.test_session_maker() as session:
+            return len((await session.scalars(select(PlaybackEvent).where(PlaybackEvent.video_id == UUID(video["id"])))).all())
+
+    import asyncio
+
+    assert asyncio.run(count_events()) == 120
+
+
+def test_admission_keys_separate_video_and_authenticated_anonymous_scopes(
+    fake_telemetry_redis: FakeRedis,
+) -> None:
+    import asyncio
+
+    fixed_now = datetime(2026, 8, 24, 12, 34, 59, tzinfo=timezone.utc)
+    video_a = uuid4()
+    video_b = uuid4()
+
+    async def admit(video_id: UUID, user_id: UUID | None, session_id: UUID) -> None:
+        await telemetry_admission.admit_playback_event(
+            video_id=video_id,
+            user_id=user_id,
+            playback_session_id=session_id,
+            now=fixed_now,
+        )
+
+    authenticated_a = uuid4()
+    authenticated_b = uuid4()
+    asyncio.run(admit(video_a, authenticated_a, uuid4()))
+    asyncio.run(admit(video_a, authenticated_b, uuid4()))
+    asyncio.run(admit(video_b, authenticated_a, uuid4()))
+    asyncio.run(admit(video_a, None, uuid4()))
+    asyncio.run(admit(video_a, None, uuid4()))
+
+    assert len(fake_telemetry_redis.counters) == 5
+    assert all(key.startswith("atlas:telemetry:admission:v1:") for key in fake_telemetry_redis.counters)
+    assert all("202608241234" in key for key in fake_telemetry_redis.counters)
+    assert all("user:" in key or "session:" in key for key in fake_telemetry_redis.counters)
+    assert all("127.0.0.1" not in key for key in fake_telemetry_redis.counters)
+    assert all(value == telemetry_admission.WINDOW_TTL_SECONDS for value in fake_telemetry_redis.expirations.values())
+    assert fake_telemetry_redis.transaction_flags == [True] * 5
+    assert fake_telemetry_redis.closed is True
+
+
+def test_redis_admission_failure_is_sanitized_and_playback_read_is_unaffected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    video = client.post("/videos", headers=_headers("redis-owner"), json={"title": "Redis unavailable"}).json()
+    _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
+
+    class FailingRedis:
+        def pipeline(self, *, transaction: bool) -> None:
+            raise ConnectionError("redis unavailable")
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(videos_api.telemetry_admission, "redis_client_factory", FailingRedis)
+    response = client.post(
+        f"/videos/{video['id']}/events",
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "play"},
+    )
+    playback = client.get(f"/videos/{video['id']}/playback")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"error": "ServiceUnavailable", "message": "Playback telemetry is temporarily unavailable"}
+    }
+    assert "redis unavailable" not in response.text
+    assert playback.status_code == 200
