@@ -15,6 +15,7 @@ help:
 		'  make lint       Run lightweight syntax/config checks' \
 		'  make smoke      Run Sector H stack smoke check' \
 		'  make analytics-rebuild DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD  Rebuild daily analytics' \
+		'  make telemetry-purge [ARGS="--apply"]  Purge raw playback events (dry run by default)' \
 		'  make search-reindex  Enqueue a public-video search index rebuild' \
 		'  make processing-recover-stale [ARGS="--apply"]  Inspect/fail abandoned processing jobs (dry run by default)' \
 		'  make deletion-reconcile  Reconcile pending/running/failed video tombstones' \
@@ -73,6 +74,10 @@ fixture:
 analytics-rebuild: env
 	@test -n "$(DATE_FROM)" && test -n "$(DATE_TO)" || (echo "Set DATE_FROM and DATE_TO as YYYY-MM-DD"; exit 2)
 	$(COMPOSE) run --rm --build api python -m app.commands.rebuild_analytics --date-from "$(DATE_FROM)" --date-to "$(DATE_TO)"
+
+.PHONY: telemetry-purge
+telemetry-purge: env
+	$(COMPOSE) run --rm --build api python -m app.commands.purge_telemetry $(ARGS)
 
 .PHONY: search-reindex
 search-reindex: env
