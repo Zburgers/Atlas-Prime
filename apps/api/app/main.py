@@ -26,8 +26,11 @@ from app.api.thumbnails import router as thumbnails_router
 from app.api.videos import router as videos_router
 from app.core import config
 from app.domain.status import CANONICAL_VIDEO_STATUS_VALUES, PRIVACY_VALUES
+from app.schemas.videos import VersionResponse
 
 STATUS_VALUES = CANONICAL_VIDEO_STATUS_VALUES
+# Update this source-controlled attribution value with future migration heads.
+EXPECTED_ALEMBIC_HEAD = "20260824_0019"
 
 app = FastAPI(title="Atlas Prime API", version="0.0.1")
 app.include_router(comments_router)
@@ -134,6 +137,16 @@ async def healthz() -> dict[str, Any]:
         checks["search"] = await _check_meilisearch()
     status = "ok" if all(check["ok"] for check in checks.values()) else "degraded"
     return {"status": status, "service": "api", "dependencies": checks}
+
+
+@app.get("/version", response_model=VersionResponse)
+def version() -> VersionResponse:
+    return VersionResponse(
+        build_sha=config.build_sha(),
+        build_time=config.build_time(),
+        app_environment=config.env("APP_ENV", "development"),
+        alembic_head=EXPECTED_ALEMBIC_HEAD,
+    )
 
 
 @app.get("/dev/mvp-contract")

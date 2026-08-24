@@ -11,6 +11,13 @@ from app.domain.status import JobStatus, ProcessingStage, RenditionStatus, Video
 from app.schemas.captions import TextTrackResponse
 
 
+class VersionResponse(BaseModel):
+    build_sha: str
+    build_time: str
+    app_environment: str
+    alembic_head: str
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -22,6 +22,40 @@ def test_health_can_skip_dependency_checks(monkeypatch) -> None:
     assert response.json()["dependencies"] == "skipped"
 
 
+def test_version_reports_unknown_local_build_metadata(monkeypatch) -> None:
+    monkeypatch.delenv("ATLAS_BUILD_SHA", raising=False)
+    monkeypatch.delenv("ATLAS_BUILD_TIME", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    client = TestClient(app)
+
+    response = client.get("/version")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "build_sha": "unknown",
+        "build_time": "unknown",
+        "app_environment": "development",
+        "alembic_head": "20260824_0019",
+    }
+
+
+def test_version_reports_configured_build_metadata(monkeypatch) -> None:
+    monkeypatch.setenv("ATLAS_BUILD_SHA", "plan53-test-sha")
+    monkeypatch.setenv("ATLAS_BUILD_TIME", "2026-08-24T12:00:00Z")
+    monkeypatch.setenv("APP_ENV", "staging")
+    client = TestClient(app)
+
+    response = client.get("/version")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "build_sha": "plan53-test-sha",
+        "build_time": "2026-08-24T12:00:00Z",
+        "app_environment": "staging",
+        "alembic_head": "20260824_0019",
+    }
+
+
 def test_mvp_contract_keeps_private_default_and_canonical_statuses() -> None:
     client = TestClient(app)
 

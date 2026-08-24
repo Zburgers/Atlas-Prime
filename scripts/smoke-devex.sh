@@ -4,6 +4,13 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Export the documented default so Compose's shell precedence is intentional
+# even when .env contains a different local value.
+if [ -z "${ATLAS_BUILD_SHA:-}" ]; then
+  export ATLAS_BUILD_SHA=unknown
+fi
+expected_build_sha="$ATLAS_BUILD_SHA"
+
 if [ ! -f .env ]; then
   cp .env.example .env
 fi
@@ -79,6 +86,24 @@ wait_for_health worker
 
 docker compose run --rm api alembic upgrade head
 
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'python3 is required for the integration smoke client\n' >&2
+  exit 1
+fi
+
+version_response="$(curl -fsS "$api_url/version")"
+EXPECTED_BUILD_SHA="$expected_build_sha" VERSION_RESPONSE="$version_response" python3 <<'PY'
+import json
+import os
+
+body = json.loads(os.environ["VERSION_RESPONSE"])
+expected_fields = {"build_sha", "build_time", "app_environment", "alembic_head"}
+if set(body) != expected_fields:
+    raise AssertionError("/version response fields do not match the contract")
+if body["build_sha"] != os.environ["EXPECTED_BUILD_SHA"]:
+    raise AssertionError("/version build SHA did not match the Compose build SHA")
+PY
+
 contract="$(curl -fsS "$api_url/dev/mvp-contract")"
 printf '%s' "$contract" | grep -q '"default_privacy":"private"'
 printf '%s' "$contract" | grep -q '"upload_transport":"api-mediated"'
@@ -98,11 +123,6 @@ if [ ! -f "$fixture_path" ]; then
     -c:v libx264 -pix_fmt yuv420p \
     -c:a aac -b:a 96k \
     /fixtures/sample-2s.mp4
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-  printf 'python3 is required for the integration smoke client\n' >&2
-  exit 1
 fi
 
 API_SMOKE_URL="$api_url" SAMPLE_VIDEO_PATH="$fixture_path" python3 <<'PY'
