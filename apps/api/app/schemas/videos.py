@@ -32,6 +32,8 @@ class VideoUpdate(BaseModel):
 
 
 class PlaybackEventCreate(BaseModel):
+    playback_session_id: UUID
+    event_id: UUID
     event_type: Literal[
         "player_ready", "play", "pause", "seek", "progress_ping", "buffer_start", "buffer_end", "ended",
         "error", "unsupported", "buffering", "quality_change", "card_click",
@@ -48,6 +50,8 @@ class PlaybackEventResponse(BaseModel):
     id: UUID
     user_id: UUID | None
     video_id: UUID
+    playback_session_id: UUID
+    event_id: UUID
     event_type: str
     position_seconds: Decimal | None
     quality_label: str | None

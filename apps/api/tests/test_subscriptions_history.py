@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator, Iterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -89,7 +89,11 @@ def test_viewer_can_subscribe_and_see_only_public_ready_videos_in_subscription_f
 def test_authenticated_play_event_upserts_private_history_and_library_is_viewer_scoped(client: TestClient) -> None:
     video = client.post("/videos", headers=headers("creator"), json={"title": "Private history"}).json()
     mark_ready(client, video["id"], VideoPrivacy.PRIVATE)
-    own_play = client.post(f"/videos/{video['id']}/events", headers=headers("creator"), json={"event_type": "play", "position_seconds": 14})
+    own_play = client.post(
+        f"/videos/{video['id']}/events",
+        headers=headers("creator"),
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "play", "position_seconds": 14},
+    )
     own_history = client.get("/library/history", headers=headers("creator"))
     other_history = client.get("/library/history", headers=headers("viewer"))
 

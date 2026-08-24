@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator, Iterator
-from uuid import UUID
+from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_session
+from app.api import videos as videos_api
 from app.db.base import Base
-from app.db.models import Video, VideoRendition
+from app.db.models import PlaybackEvent, Video, VideoRendition
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
 
@@ -162,3 +164,82 @@ def test_private_video_impression_and_view_require_access(client: TestClient) ->
     assert view.status_code == 403
     assert owner_view.status_code == 201
     assert owner_view.json()["view_count"] == 1
+
+
+def test_playback_event_identity_is_returned_and_retry_is_idempotent(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Identified playback"}).json()
+    _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
+    payload = {
+        "playback_session_id": str(uuid4()),
+        "event_id": str(uuid4()),
+        "event_type": "play",
+        "position_seconds": "5.0",
+        "request_id": "telemetry-request-1",
+    }
+    record_history = AsyncMock()
+    monkeypatch.setattr(videos_api.subscription_service, "record_history", record_history)
+
+    first = client.post(f"/videos/{video['id']}/events", json=payload)
+    retry = client.post(f"/videos/{video['id']}/events", json=payload)
+
+    assert first.status_code == 201
+    assert retry.status_code == 200
+    first_body = first.json()
+    retry_body = retry.json()
+    assert UUID(first_body["playback_session_id"]) == UUID(payload["playback_session_id"])
+    assert UUID(first_body["event_id"]) == UUID(payload["event_id"])
+    assert retry_body["id"] == first_body["id"]
+    assert retry_body["event_id"] == first_body["event_id"]
+    assert record_history.await_count == 1
+
+
+def test_same_playback_session_accepts_distinct_event_ids(client: TestClient) -> None:
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Session events"}).json()
+    _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
+    session_id = str(uuid4())
+
+    first = client.post(
+        f"/videos/{video['id']}/events",
+        json={"playback_session_id": session_id, "event_id": str(uuid4()), "event_type": "player_ready"},
+    )
+    second = client.post(
+        f"/videos/{video['id']}/events",
+        json={"playback_session_id": session_id, "event_id": str(uuid4()), "event_type": "pause"},
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["playback_session_id"] == session_id
+    assert second.json()["playback_session_id"] == session_id
+    assert first.json()["event_id"] != second.json()["event_id"]
+
+
+def test_event_id_reuse_on_another_video_is_a_sanitized_conflict(client: TestClient) -> None:
+    first_video = client.post("/videos", headers=_headers("owner"), json={"title": "First event video"}).json()
+    second_video = client.post("/videos", headers=_headers("owner"), json={"title": "Second event video"}).json()
+    _mark_video_ready(client, video_id=first_video["id"], privacy=VideoPrivacy.PUBLIC)
+    _mark_video_ready(client, video_id=second_video["id"], privacy=VideoPrivacy.PUBLIC)
+    event_id = str(uuid4())
+
+    first = client.post(
+        f"/videos/{first_video['id']}/events",
+        json={"playback_session_id": str(uuid4()), "event_id": event_id, "event_type": "play"},
+    )
+    conflict = client.post(
+        f"/videos/{second_video['id']}/events",
+        json={"playback_session_id": str(uuid4()), "event_id": event_id, "event_type": "play"},
+    )
+
+    assert first.status_code == 201
+    assert conflict.status_code == 409
+    assert conflict.json() == {"detail": {"error": "Conflict", "message": "Event ID already exists"}}
+    assert event_id not in conflict.text
+    assert first_video["id"] not in conflict.text
+
+
+def test_playback_event_identity_columns_are_required_and_event_id_is_unique() -> None:
+    table = PlaybackEvent.__table__
+
+    assert table.c.playback_session_id.nullable is False
+    assert table.c.event_id.nullable is False
+    assert any(constraint.name == "uq_playback_events_event_id" for constraint in table.constraints)

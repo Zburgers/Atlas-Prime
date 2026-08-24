@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event
 from typing import BinaryIO
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -911,6 +911,8 @@ def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> 
         f"/videos/{video_id}/events",
         headers=_headers("owner"),
         json={
+            "playback_session_id": str(uuid4()),
+            "event_id": str(uuid4()),
             "event_type": "error",
             "position_seconds": "1.25",
             "quality_label": "manifestLoadError",
@@ -933,7 +935,7 @@ def test_playback_progress_event_is_recorded_for_accessible_video(client: TestCl
     response = client.post(
         f"/videos/{video_id}/events",
         headers=_headers("owner"),
-        json={"event_type": "progress_ping", "position_seconds": 15},
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "progress_ping", "position_seconds": 15},
     )
 
     assert response.status_code == 201
@@ -984,7 +986,7 @@ def test_admin_debug_includes_jobs_renditions_and_playback_events(client: TestCl
     client.post(
         f"/videos/{video_id}/events",
         headers=_headers("owner"),
-        json={"event_type": "player_ready", "quality_label": "hls.js"},
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "player_ready", "quality_label": "hls.js"},
     )
 
     jobs = client.get("/admin/jobs", headers=_headers("operator"))

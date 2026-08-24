@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator, Iterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -130,12 +130,12 @@ def test_recommendation_debug_joins_impression_playback_and_view_events(client: 
     playback = client.post(
         f"/videos/{video['id']}/events",
         headers=_headers(),
-        json={"event_type": "play", "position_seconds": 2, "request_id": request_id},
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "play", "position_seconds": 2, "request_id": request_id},
     )
     click = client.post(
         f"/videos/{video['id']}/events",
         headers=_headers(),
-        json={"event_type": "card_click", "request_id": request_id},
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "card_click", "request_id": request_id},
     )
     view = client.post(
         f"/videos/{video['id']}/views",

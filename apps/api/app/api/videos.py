@@ -10,6 +10,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Path, Query, Request, Response, UploadFile, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import PlaybackEvent, VideoAssetInventory
 from app.api.deps import (
@@ -349,13 +351,27 @@ async def signed_delivery_asset(
 async def record_playback_event(
     video_id: UUID,
     payload: PlaybackEventCreate,
+    response: Response,
     session: SessionDep,
     user: OptionalCurrentUserDep,
 ) -> PlaybackEvent:
     video = await video_service.get_video_for_read(session, user, video_id)
+    requested_video_id = video.id
+    existing = await session.scalar(select(PlaybackEvent).where(PlaybackEvent.event_id == payload.event_id))
+    if existing is not None:
+        if existing.video_id != requested_video_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"error": "Conflict", "message": "Event ID already exists"},
+            )
+        response.status_code = status.HTTP_200_OK
+        return existing
+
     event = PlaybackEvent(
         user_id=getattr(user, "id", None),
         video_id=video.id,
+        playback_session_id=payload.playback_session_id,
+        event_id=payload.event_id,
         event_type=payload.event_type,
         position_seconds=payload.position_seconds,
         quality_label=payload.quality_label,
@@ -363,6 +379,20 @@ async def record_playback_event(
         request_id=payload.request_id,
     )
     session.add(event)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        existing = await session.scalar(select(PlaybackEvent).where(PlaybackEvent.event_id == payload.event_id))
+        if existing is None:
+            raise
+        if existing.video_id != requested_video_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"error": "Conflict", "message": "Event ID already exists"},
+            )
+        response.status_code = status.HTTP_200_OK
+        return existing
     if payload.event_type == "play":
         await subscription_service.record_history(session, user, video, payload.position_seconds)
     await session.commit()

@@ -249,6 +249,7 @@ class PlaybackEvent(Base):
     __tablename__ = "playback_events"
     __table_args__ = (
         CheckConstraint("position_seconds is null or position_seconds >= 0", name="ck_playback_events_position_nonnegative"),
+        UniqueConstraint("event_id", name="uq_playback_events_event_id"),
         Index("ix_playback_events_video_created_at", "video_id", "created_at"),
         Index("ix_playback_events_user_created_at", "user_id", "created_at"),
         Index("ix_playback_events_request_id", "request_id"),
@@ -257,6 +258,8 @@ class PlaybackEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    playback_session_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     position_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     quality_label: Mapped[str | None] = mapped_column(Text)
