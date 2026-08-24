@@ -8,6 +8,20 @@ test("web package exposes the expected runtime scripts", () => {
   assert.equal(pkg.scripts.test, "node --test");
 });
 
+test("CI smoke mode bypasses Clerk only for the disposable smoke process", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const layout = fs.readFileSync(path.join(__dirname, "../app/layout.tsx"), "utf8");
+
+  assert.match(layout, /process\.env\.ATLAS_CI_SMOKE_MODE === "true"/);
+  assert.match(layout, /if \(!smokeMode && !clerkPublishableKey\)/);
+  assert.match(layout, /smokeMode \? \(\s+<header className="appHeader">/);
+  assert.match(layout, /smokeMode \? \(\s+<section className="surface" aria-labelledby="smoke-heading">/);
+  assert.match(layout, /smokeMode \? appShell : <ClerkProvider publishableKey=\{clerkPublishableKey\}>\{appShell\}<\/ClerkProvider>/);
+  assert.match(layout, /<ClerkProvider publishableKey=\{clerkPublishableKey\}>/);
+  assert.match(layout, /<a className="skipLink" href="#main-content">Skip to main content<\/a>/);
+});
+
 test("normal video contracts redact storage and queue internals", () => {
   const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../app/components/video-api.ts"), "utf8");
 

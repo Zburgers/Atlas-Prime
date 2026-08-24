@@ -8,7 +8,22 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
-export ATLAS_ALLOW_DEV_AUTH_HEADERS="${ATLAS_ALLOW_DEV_AUTH_HEADERS:-true}"
+smoke_mode="${ATLAS_CI_SMOKE_MODE:-true}"
+if [ "$smoke_mode" != "true" ]; then
+  printf 'smoke requires ATLAS_CI_SMOKE_MODE=true\n' >&2
+  exit 1
+fi
+
+export ATLAS_CI_SMOKE_MODE=true
+export ATLAS_ALLOW_DEV_AUTH_HEADERS=true
+# The existing Clerk middleware still initializes before the smoke-only shell.
+# This is a non-secret placeholder and is never written to .env or used by normal startup.
+smoke_clerk_secret_key=sk_test_atlas_prime_ci_smoke_only_000000
+export CLERK_SECRET_KEY="$smoke_clerk_secret_key"
+
+test "$ATLAS_CI_SMOKE_MODE" = "true"
+test "$ATLAS_ALLOW_DEV_AUTH_HEADERS" = "true"
+test "$CLERK_SECRET_KEY" = "sk_test_atlas_prime_ci_smoke_only_000000"
 
 docker compose config -q
 docker compose up --build -d
