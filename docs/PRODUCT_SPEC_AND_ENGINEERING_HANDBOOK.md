@@ -9,6 +9,7 @@ Verified branch commit: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`
 Current authoritative branch commit after handbook merge: `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`
 Reconciled candidate branch: `docs/fullplatform-rollout`
 Current release-evidence candidate: `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`
+Final documentation-inclusive verification head: `d5c5ba07d9bedb58d69eca6308ee69d0a991e72f`
 Reconciliation base commit before version 1.1 documentation: `65e23a0697091916f84b4b3b64953372730c7998`
 Production status: `UNVERIFIED`
 Verified deployed commit: `UNVERIFIED`
@@ -553,7 +554,7 @@ Status: non-executable overview. Use `docs/plans/README.md` and its indexed plan
 **Goal:** turn repository evidence into repeatable release evidence.
 **Scope:** rerun `make test`, `make lint`, and `make smoke`; verify GitHub Actions execution; define a revision/version endpoint or build metadata; document a self-hosted deployment only when an actual deployment is approved.
 **Status:** COMPLETE for candidate `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`; a production deployment itself is not approved by the MVP documents.
-**Exit evidence:** `make lint`, `make test` (149 API, 25 worker, 11 web), and exact-SHA `WEB_PORT=3009` smoke passed with fixed build time `2026-08-24T05:24:56Z`; GitHub Actions run `32693450411` completed successfully with the same `head_sha`. Detailed evidence and historical failures are in `docs/audits/release-evidence-current.md`.
+**Exit evidence:** `make lint`, `make test` (149 API, 25 worker, 11 web), and exact-SHA `WEB_PORT=3009` smoke passed with fixed build time `2026-08-24T05:24:56Z`; GitHub Actions run `32693450411` completed successfully with the same `head_sha`. The documentation-inclusive follow-up head `d5c5ba07d9bedb58d69eca6308ee69d0a991e72f` also passed the parent local gate and CI run `32694224817`. Detailed evidence and historical failures are in `docs/audits/release-evidence-current.md`.
 
 ## 11. Decision log
 

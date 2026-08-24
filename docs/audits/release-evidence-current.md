@@ -1,4 +1,4 @@
-# Release Evidence: Current Candidate
+# Release Evidence: Qualified Implementation Candidate
 
 Status: local deterministic and attributable CI candidate qualification recorded; merge, deployment, authenticated browser qualification, and production remain unverified.
 
@@ -27,6 +27,15 @@ Each gate used the fixed build metadata above.
 
 Additional post-gate check: `git diff --check` PASS before documentation closeout.
 
+## Final Documentation-Inclusive Verification
+
+The documentation-only follow-up head `d5c5ba07d9bedb58d69eca6308ee69d0a991e72f` was independently requalified after the closeout commit. The implementation candidate above remained unchanged.
+
+- Fixed build metadata: `ATLAS_BUILD_SHA=d5c5ba07d9bedb58d69eca6308ee69d0a991e72f`, `ATLAS_BUILD_TIME=2026-08-24T05:38:04Z`.
+- Parent rerun: `make lint` PASS; `make test` PASS with 149 API, 25 worker, and 11 web tests.
+- Parent rerun: `WEB_PORT=3010` smoke PASS with readiness, dependency health, Alembic, `/version` SHA assertion, ready HLS playback, private denial, and corrupt-media failure.
+- CI run [32694224817](https://github.com/Zburgers/Atlas-Prime/actions/runs/32694224817) completed successfully with `head_sha` `d5c5ba07d9bedb58d69eca6308ee69d0a991e72f`; `devex` passed at [job 97333246149](https://github.com/Zburgers/Atlas-Prime/actions/runs/32694224817/job/97333246149).
+
 ## `/version` Contract
 
 The smoke assertion passed for the exact candidate SHA and fixed build time. The response contract is the exact field set:
@@ -52,4 +61,4 @@ No host path, token, storage credential, or other secret is part of this contrac
 
 ## Evidence Boundaries
 
-This record proves deterministic local qualification and attributable GitHub Actions qualification for the candidate SHA. It does not prove branch merge, deployment, authenticated browser qualification, or production behavior. Production: `UNVERIFIED`.
+This record proves deterministic local qualification and attributable GitHub Actions qualification for the implementation candidate and its documentation-inclusive follow-up head. It does not prove branch merge, deployment, authenticated browser qualification, or production behavior. Production: `UNVERIFIED`.
