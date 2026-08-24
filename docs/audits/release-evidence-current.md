@@ -1,42 +1,55 @@
-# Release Evidence: Current Local Candidate
+# Release Evidence: Current Candidate
 
-Status: local deterministic candidate qualification recorded; CI, deployment, and production remain unverified.
+Status: local deterministic and attributable CI candidate qualification recorded; merge, deployment, authenticated browser qualification, and production remain unverified.
 
 ## Candidate
 
 - Branch: `docs/fullplatform-rollout`
-- Candidate SHA: `a34e20ecd372e1aea429b461f55a34413120ac56`
-- Source-control state: `origin/docs/fullplatform-rollout` matched the candidate before the gate. The working tree was clean before and after the gate.
-- Fixed build metadata for all three gates:
-  - `ATLAS_BUILD_SHA=a34e20ecd372e1aea429b461f55a34413120ac56`
-  - `ATLAS_BUILD_TIME=2026-08-24T04:57:32Z`
+- Candidate SHA: `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`
+- Source-control state: local `HEAD` and `origin/docs/fullplatform-rollout` matched this SHA before documentation closeout. The working tree was clean before these documentation changes.
+- Pull request: [#12](https://github.com/Zburgers/Atlas-Prime/pull/12), open, `headRefOid` matches the candidate.
+- Fixed build metadata:
+  - `ATLAS_BUILD_SHA=8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`
+  - `ATLAS_BUILD_TIME=2026-08-24T05:24:56Z`
 
-## Validation Window
+## Local Gates
 
-The parent-verified gate ran on 2026-08-24. Candidate setup timestamp was `2026-08-24T04:57:32Z`; completion was observed at `2026-08-24T05:00:38Z`. These are window boundaries, not per-command timestamps.
+Each gate used the fixed build metadata above.
 
-## Gates
-
-Each command used the fixed build metadata above.
-
-1. `ATLAS_BUILD_SHA=a34e20ecd372e1aea429b461f55a34413120ac56 ATLAS_BUILD_TIME=2026-08-24T04:57:32Z make lint`
+1. `ATLAS_BUILD_SHA=8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187 ATLAS_BUILD_TIME=2026-08-24T05:24:56Z make lint`
    - PASS: Compose configuration, API/worker `compileall`, and web build/lint.
-2. `ATLAS_BUILD_SHA=a34e20ecd372e1aea429b461f55a34413120ac56 ATLAS_BUILD_TIME=2026-08-24T04:57:32Z make test`
-   - PASS: 149 API tests, 25 worker tests, and 10 web tests.
-3. `ATLAS_BUILD_SHA=a34e20ecd372e1aea429b461f55a34413120ac56 ATLAS_BUILD_TIME=2026-08-24T04:57:32Z WEB_PORT=3005 API_SMOKE_URL=http://127.0.0.1:8000 WEB_SMOKE_URL=http://127.0.0.1:3005 make smoke`
-   - PASS: API, web, and dependency health; Alembic upgrade; `/version` SHA assertion; upload through processing to ready HLS playback; private playback denial; and corrupt-media failure. Web HTTP was 200.
+2. `ATLAS_BUILD_SHA=8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187 ATLAS_BUILD_TIME=2026-08-24T05:24:56Z make test`
+   - PASS: 149 API tests, 25 worker tests, and 11 web tests.
+3. `ATLAS_BUILD_SHA=8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187 ATLAS_BUILD_TIME=2026-08-24T05:24:56Z WEB_PORT=3009 API_SMOKE_URL=http://127.0.0.1:8000 WEB_SMOKE_URL=http://127.0.0.1:3009 make smoke`
+   - PASS: API/web/dependency readiness, Alembic upgrade, `/version` SHA assertion, ready HLS upload/process/playback, private playback denial, and corrupt-media failure.
+   - Ready video: `aad0f4b9-9e9c-409e-81df-57e7bcb5a38e`.
+   - Bad video: `c718d081-9fca-4a1b-933f-faa684638d9a`; failure code `MEDIA_COMMAND_FAILED`.
 
-Additional post-gate checks:
+Additional post-gate check: `git diff --check` PASS before documentation closeout.
 
-- `git diff --check`: PASS.
-- `git status --porcelain=v1`: empty after the gate.
+## `/version` Contract
 
-Observed `/version` response after smoke:
+The smoke assertion passed for the exact candidate SHA and fixed build time. The response contract is the exact field set:
 
 ```json
-{"build_sha":"a34e20ecd372e1aea429b461f55a34413120ac56","build_time":"2026-08-24T04:57:32Z","app_environment":"development","alembic_head":"20260824_0019"}
+{"build_sha":"<candidate SHA>","build_time":"<fixed build time>","app_environment":"<environment>","alembic_head":"<migration head>"}
 ```
+
+No host path, token, storage credential, or other secret is part of this contract.
+
+## GitHub Actions Evidence
+
+- Run: [CI run 32693450411](https://github.com/Zburgers/Atlas-Prime/actions/runs/32693450411)
+- Event: `pull_request`
+- Status/conclusion: `completed` / `success`
+- `head_sha`: `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`
+- Required check: `devex` passed at [job 97331148718](https://github.com/Zburgers/Atlas-Prime/actions/runs/32693450411/job/97331148718)
+
+## Historical Failure Context
+
+- Run [32692193463](https://github.com/Zburgers/Atlas-Prime/actions/runs/32692193463) on prior head `129b3dacb85661bdd7b0bc067b0195feb66933b3` failed only at Sector H web readiness because CI had no Clerk publishable key while `apps/web/proxy.ts` initialized Clerk before the smoke-only layout.
+- The first fake `pk_test_` workaround also failed in a live local container with `Publishable key not valid.` The committed remediation is the exact smoke-mode proxy bypass, which is covered by the current local and CI evidence.
 
 ## Evidence Boundaries
 
-This record proves local deterministic candidate qualification only. The pushed remote ref is source-control state, not CI proof. The GitHub Actions check head SHA is not yet verified; Plan 5.5 remains open. Merge, deployment, authenticated browser qualification for this candidate, and production status are not claimed. Production: `UNVERIFIED`.
+This record proves deterministic local qualification and attributable GitHub Actions qualification for the candidate SHA. It does not prove branch merge, deployment, authenticated browser qualification, or production behavior. Production: `UNVERIFIED`.

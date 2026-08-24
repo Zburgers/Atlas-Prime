@@ -77,3 +77,5 @@ The generated fixture is `fixtures/media/sample-2s.mp4` and is ignored by git.
 - A corrupt MP4-shaped upload is accepted into the processing path, then reaches a visible `failed` state with a failure code.
 
 `make smoke` temporarily exports `ATLAS_ALLOW_DEV_AUTH_HEADERS=true` for repeatable local integration checks. Leave that setting disabled for normal Clerk-backed development unless you are intentionally running local smoke/test flows.
+
+`make smoke` also exports `ATLAS_CI_SMOKE_MODE=true` only for the disposable smoke process. With that exact value, the web proxy bypasses Clerk middleware initialization and the root layout renders the smoke shell. Normal startup does not set this flag, so Clerk middleware, the Clerk provider, and real Clerk configuration remain required. This smoke-only path does not change normal authentication behavior.

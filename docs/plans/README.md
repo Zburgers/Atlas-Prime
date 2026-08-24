@@ -4,6 +4,7 @@ Status: canonical plan index
 Last reconciled: 2026-08-24
 Repository branch: `docs/fullplatform-rollout`
 Reconciliation base commit: `3021889` (parent-verified Plan 4 closeout evidence)
+Current release-evidence candidate: `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`
 Merged handbook PR: [#11](https://github.com/Zburgers/Atlas-Prime/pull/11), merge commit `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`
 
 ## Contract
@@ -32,7 +33,7 @@ Precedence for implementation work:
 | 2 | `2026-08-04-02-upload-job-idempotency.md` | Executable remediation | COMPLETE | Plan 1 exit recorded; generation contract and bounded recovery validated at `6bb8064` | `6bb8064`: `make test` (115 API, 14 worker, 5 web); `make lint`; alternate-port smoke passed |
 | 3 | `2026-08-04-03-media-publication-deletion.md` | Executable remediation | COMPLETE | Plan 2 COMPLETE at `6bb8064`; Plan 3 implementation and exit evidence are verified at `83229d4` | `83229d4`: publication/deletion tests, `make lint`, `make test`, alternate-port smoke, and `git diff --check` |
 | 4 | `2026-08-04-04-telemetry-governance.md` | Executable remediation | COMPLETE | Plan 3 COMPLETE at `83229d4`; R-004 accepted on 2026-08-05; parent verified the Plan 4 exit gate at `3021889` | `3021889`: `make lint`, `make test` (145 API, 25 worker, 9 web), alternate-port smoke, `git diff --check`, and local/browser accessibility evidence |
-| 5 | `2026-08-04-05-release-evidence.md` | Executable release gate | READY | Plans 1-4 complete; Plan 4 exit evidence is recorded at `3021889` | Green CI/current-head gates at one SHA, followed by release/deployment/production qualification |
+| 5 | `2026-08-04-05-release-evidence.md` | Executable release gate | COMPLETE | Plans 1-4 complete; Plan 4 exit evidence is recorded at `3021889` | Candidate `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`: local gates and CI run `32693450411` passed; release/deployment/production remain separately unverified |
 
 There is deliberately no implementation plan for ML personalization, monetization, live streaming, native mobile, or production deployment. Those remain unapproved or premature under the MVP contract. Creating detailed build instructions for them would give agents false authority and recreate the non-determinism this index prevents.
 
@@ -54,7 +55,7 @@ The PR #11 handbook audited `main` at `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`
 | C-010 telemetry governance | RESOLVED | Identity/deduplication at `7e0142a`; admission at `ef8b711`; retention at `6ee3323`; aggregate health at `5494bc9`; Plan 4 exit gate verified at `3021889` |
 | C-011 strict Clerk `azp` | RESOLVED | Configured allowlists reject missing/mismatched `azp`; tests green at `ced7472` |
 | C-012 stale watch copy | RESOLVED | User-safe lifecycle copy and smoke assertions at `d33d456` |
-| Current-head/release evidence | OPEN | Plan 5; PR #11 CI failed on missing Clerk publishable key |
+| Current-head/release evidence | COMPLETE | Plan 5 candidate `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`; local gates and CI run `32693450411` passed; historical failures remain in the release audit |
 
 Post-MVP product slices present on this branch include public discovery, channels, likes, watch later, Studio, comments, deterministic feeds, recommendation logging, thumbnails, moderation, analytics, captions, subscriptions, history, playlists, rich playback events, expanded media output, chapters, signed redirect delivery, Meilisearch indexing/read fallback, accessibility verification, and caption transcript search.
 
@@ -66,7 +67,7 @@ Post-MVP product slices present on this branch include public discovery, channel
 - CI release evidence will use an explicit Clerk-free smoke mode in CI; production and normal local auth remain Clerk-backed.
 - R-001 (maximum upload size) remains open; agents must not infer a new limit.
 
-These slices do not bypass the remediation sequence. Hardening Plans 1-5 are the active queue. Recommendation V2 and ML remain deferred until the release-evidence gate passes and the owner explicitly promotes that scope.
+These slices do not bypass the remediation sequence. Hardening Plans 1-5 are complete for the documented candidate. Recommendation V2 and ML remain deferred until the owner explicitly promotes that scope; merge, deployment, and production qualification remain separate approvals.
 
 Plan 1 exit evidence is attributable to implementation commits `bac7a89`, `fd62a20`, `d79b42f`, `ced7472`, and `d33d456`, plus the contract documentation and memory handoff commit recorded below. C-001 remains partial by design: FastAPI is authoritative and the proxy does not independently authorize roles.
 
@@ -74,7 +75,9 @@ Plan 2 exit evidence is attributable to `6bb8064`, atop the generation-fencing c
 
 Plan 3 implementation evidence is attributable to `5fb8d86` (publication/deletion schema), `8cf082a` (attempt-scoped staging and typed upload inventory), `a417095` (atomic publication), `88ae38a` (inventory-bound playback), `bb27f28` (tombstone-first deletion and reconciliation), and `83229d4` (cursor-batch remediation). The parent-verified exit gate at `83229d4` passed `make lint`, `make test` (130 API, 25 worker, 5 web), `WEB_PORT=3002 WEB_SMOKE_URL=http://127.0.0.1:3002 make smoke`, and `git diff --check`. Plan 3 is COMPLETE. This is repository/local evidence only and does not claim merge, deployment, authenticated browser qualification, or production readiness.
 
-Plan 4 is COMPLETE at `3021889`. Implementation evidence is attributable to `7e0142a` (session/event identity), `47e54ff` (client identity remediation), `ef8b711` (Redis admission), `6ee3323` (raw-event retention), and `5494bc9` (aggregate operator health). The parent-verified exit gate passed `make lint`, `make test` (145 API, 25 worker, 9 web), `WEB_PORT=3003 WEB_SMOKE_URL=http://127.0.0.1:3003 make smoke`, and `git diff --check`. The same local verification included public-route Playwright checks, mobile overflow and keyboard focus checks, and Lighthouse accessibility 100 with zero failing audits on the rebuilt web artifact. These are local/browser artifacts only: CI, merge, deployment, authenticated admin-role qualification, and production readiness remain unverified. Plan 5 is READY for its independent release-evidence scope.
+Plan 4 is COMPLETE at `3021889`. Implementation evidence is attributable to `7e0142a` (session/event identity), `47e54ff` (client identity remediation), `ef8b711` (Redis admission), `6ee3323` (raw-event retention), and `5494bc9` (aggregate operator health). The parent-verified exit gate passed `make lint`, `make test` (145 API, 25 worker, 9 web), `WEB_PORT=3003 WEB_SMOKE_URL=http://127.0.0.1:3003 make smoke`, and `git diff --check`. The same local verification included public-route Playwright checks, mobile overflow and keyboard focus checks, and Lighthouse accessibility 100 with zero failing audits on the rebuilt web artifact. These are local/browser artifacts only: merge, deployment, authenticated admin-role qualification, and production readiness remain unverified.
+
+Plan 5 is COMPLETE at candidate `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`. `make lint`, `make test` (149 API, 25 worker, 11 web), and exact-SHA `WEB_PORT=3009` smoke passed with fixed build time `2026-08-24T05:24:56Z`; CI run `32693450411` completed successfully with the same `head_sha`. Task 5.6 documentation changes are uncommitted in the shared worktree and require parent verification at the final documentation commit. Production remains `UNVERIFIED`.
 
 ## Sequential Agent Protocol
 

@@ -1,13 +1,14 @@
 # Atlas Prime — Product Specification and Engineering Handbook
 
 Document version: 1.1
-Last updated: 2026-08-04
+Last updated: 2026-08-24
 Generated or audited by: repository handbook synchronization agent
 Repository: `Zburgers/Atlas-Prime`
 Authoritative branch: `main`
 Verified branch commit: `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`
 Current authoritative branch commit after handbook merge: `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`
 Reconciled candidate branch: `docs/fullplatform-rollout`
+Current release-evidence candidate: `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`
 Reconciliation base commit before version 1.1 documentation: `65e23a0697091916f84b4b3b64953372730c7998`
 Production status: `UNVERIFIED`
 Verified deployed commit: `UNVERIFIED`
@@ -71,7 +72,7 @@ The rollout branch resolves or partially resolves several original findings:
 
 The branch also delivers post-MVP product slices absent from the original `main` audit, including channels/discovery, reactions/saves, Studio, comments, deterministic feeds and diagnostics, thumbnails, moderation, analytics, captions, subscriptions/history, playlists, richer playback events, expanded media outputs, chapters/timeline, signed redirect delivery, Meilisearch, accessibility verification, and caption transcript search.
 
-The canonical live queue is `docs/plans/README.md`. Its five indexed plans replace the broad phase allocation below with sequential task IDs, exact files, commands, expected results, entry gates, and stop conditions. Post-MVP Recommendation V2/ML work is deferred until that hardening and release-evidence sequence passes and the owner explicitly approves further scope.
+The canonical live queue is `docs/plans/README.md`. Its five indexed plans replace the broad phase allocation below with sequential task IDs, exact files, commands, expected results, entry gates, and stop conditions. Plans 1-5 are complete for the documented candidate; merge, deployment, authenticated browser qualification, and production remain separately unverified. Post-MVP Recommendation V2/ML work remains deferred until the owner explicitly approves further scope.
 
 ---
 
@@ -313,7 +314,7 @@ Approved governance is implemented: Redis admission allows at most 120 events pe
 ### 4.9 Local stack, tests, and vertical smoke ✅ SHIPPED
 
 **Implementation completeness:** FULL local harness
-**Runtime state:** historically validated; current HEAD rerun UNVERIFIED
+**Runtime state:** local candidate and CI evidence recorded at `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`; deployed runtime UNVERIFIED
 **Evidence strength:** E2
 **Confidence:** HIGH
 
@@ -369,7 +370,7 @@ Resource controls that are in scope:
 - Worker timeout via `ATLAS_FFMPEG_TIMEOUT_SECONDS`.
 - Page size cap of 100 for general video listing.
 - Admin list cap of 200.
-- Bounded stale-job recovery is available through `ATLAS_PROCESSING_STALE_SECONDS` and an explicit operator command. Tombstone cleanup and reconciliation are explicit operator workflows; telemetry write controls and the Plan 4 exit evidence are complete locally at `3021889`, while deployed/CI/production qualification and live processing-concurrency qualification remain open.
+- Bounded stale-job recovery is available through `ATLAS_PROCESSING_STALE_SECONDS` and an explicit operator command. Tombstone cleanup and reconciliation are explicit operator workflows; telemetry write controls and the Plan 4 exit evidence are complete locally at `3021889`, while deployed/production qualification and live processing-concurrency qualification remain open.
 
 ## 8. Trust, abuse, fraud, and moderation
 
@@ -388,7 +389,7 @@ Required hardening:
 
 - real admin role boundary;
 - strict Clerk authorized-party handling;
-- deployed/CI/production qualification of the implemented telemetry rate limiting and retention;
+- deployed/production qualification of the implemented telemetry rate limiting and retention;
 - non-public storage identifiers;
 - live qualification of worker/recovery concurrency.
 
@@ -551,8 +552,8 @@ Status: non-executable overview. Use `docs/plans/README.md` and its indexed plan
 
 **Goal:** turn repository evidence into repeatable release evidence.
 **Scope:** rerun `make test`, `make lint`, and `make smoke`; verify GitHub Actions execution; define a revision/version endpoint or build metadata; document a self-hosted deployment only when an actual deployment is approved.
-**Status:** validation work is required; a production deployment itself is not yet approved by the MVP documents.
-**Exit gate:** current authoritative SHA has attributable green checks; any deployed runtime reports its exact revision.
+**Status:** COMPLETE for candidate `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`; a production deployment itself is not approved by the MVP documents.
+**Exit evidence:** `make lint`, `make test` (149 API, 25 worker, 11 web), and exact-SHA `WEB_PORT=3009` smoke passed with fixed build time `2026-08-24T05:24:56Z`; GitHub Actions run `32693450411` completed successfully with the same `head_sha`. Detailed evidence and historical failures are in `docs/audits/release-evidence-current.md`.
 
 ## 11. Decision log
 
@@ -617,7 +618,7 @@ Decision: open reliability/security issues #2–#10 are tracked as required chan
 
 Date: 2026-08-04
 Status: ACTIVE
-Decision: historical smoke evidence is retained, but current-head validation remains unverified until rerun.
+Decision: historical smoke evidence is retained alongside the attributable current-head local and CI qualification recorded for candidate `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`.
 
 ### D-011
 
@@ -1124,7 +1125,7 @@ Plan 2 closeout evidence at `6bb8064` (2026-08-24):
 - `WEB_PORT=3002 WEB_SMOKE_URL=http://127.0.0.1:3002 make smoke`: passed API/web/worker health, Alembic upgrade, private-by-default and API-mediated/API-proxied contract checks, successful upload through processing to ready/HLS playback including master/rendition/segment/thumbnail, cross-user denial, and corrupt-media failure.
 - The default-port smoke attempt was blocked because unrelated `sandlabx-backend` owned `127.0.0.1:3001`; it is not a pass and that process was not stopped.
 
-Remaining evidence gaps correspond to C-001, C-011, and release qualification: authenticated admin-role/browser qualification, missing `azp` in any unconfigured deployment, live PostgreSQL worker/recovery concurrency, CI/merge/deployment evidence, and production readiness. C-006 through C-010 implementation and local exit-gate evidence is recorded in the Plan 3 and Plan 4 closeouts below; deployed-runtime evidence remains unverified.
+Remaining evidence gaps correspond to C-001, C-011, and post-release qualification: authenticated admin-role/browser qualification, missing `azp` in any unconfigured deployment, live PostgreSQL worker/recovery concurrency, merge/deployment evidence, and production readiness. Plan 5 local and CI candidate evidence is recorded above and in the release audit; deployed-runtime evidence remains unverified.
 
 ## 28. Security and privacy
 
@@ -1184,11 +1185,11 @@ Observed conventions:
 | Delete removes DB only | MEDIUM | Privacy/retention | media bytes remain | C-007 resolved at `bb27f28`; live qualification remains |
 | Active worker not fenced by delete | MEDIUM | Race/privacy | media can be recreated | C-008 resolved at `a417095`/`bb27f28`; live qualification remains |
 | Segment path not bound to manifest | MEDIUM | Playback integrity | unexpected patterned object can be served | C-009 resolved at `88ae38a`; live qualification remains |
-| Playback events unbounded | MEDIUM | Abuse/retention | bounded admission, identity dedupe, 30-day purge, and aggregate health are implemented | C-010 resolved through `3021889`; CI, deployed runtime, and production qualification remain unverified |
+| Playback events unbounded | MEDIUM | Abuse/retention | bounded admission, identity dedupe, 30-day purge, and aggregate health are implemented | C-010 resolved through `3021889`; deployed runtime and production qualification remain unverified |
 | Missing `azp` accepted | MEDIUM | Auth defense-in-depth | allowlist can be bypassed by absent claim | C-011 |
 | Stale sector copy in watch UI | LOW | Product clarity | implemented HLS described as pending | C-012 |
 | Issue #1 still says HLS path unfinished | LOW | Backlog drift | implementation and smoke already exist | Documentation/issue hygiene |
-| Current production revision unknown | INFORMATIONAL | Deployment | no attributable runtime evidence | Phase 5 |
+| Current production revision unknown | INFORMATIONAL | Deployment | no attributable runtime evidence | Post-release deployment qualification |
 
 ## 31. Change history
 
@@ -1243,7 +1244,7 @@ Implementation evidence: `7e0142a`, `47e54ff`, `ef8b711`, `6ee3323`, and `5494bc
 - Protected `/admin/telemetry` exposes only aggregate counters, status, and retention cutoff. Redis metric failures degrade safely and do not affect playback, ingestion, or the existing admin panels; watch/feed producers use stable identities and retry-safe event IDs.
 - The parent-verified local gate passed `make lint`; `make test` with 145 API, 25 worker, and 9 web tests; `WEB_PORT=3003 WEB_SMOKE_URL=http://127.0.0.1:3003 make smoke` with API/web/worker health, Alembic upgrade, ready HLS playback, privacy denial, and corrupt-media failure; and `git diff --check`.
 - Frontend local/browser evidence at this SHA passed visible Playwright checks on `/`, `/library`, `/subscriptions`, `/playlists/new`, `/upload`, and `/studio` (HTTP 200, one main, one H1, named controls and links, and image alt coverage), a 390px no-horizontal-overflow check, keyboard Tab focus-name checks, and Lighthouse accessibility 100 with zero failing audits on the rebuilt web artifact. This is local/browser evidence only and is not WCAG certification.
-- The API admin allowlist is verified by tests. Authenticated browser/admin-role qualification, CI, merge, deployment, and production readiness remain unverified; Plan 5 owns the independent release-evidence gate.
+- The API admin allowlist is verified by tests. Authenticated browser/admin-role qualification, merge, deployment, and production readiness remain unverified; Plan 5 local and CI release evidence is recorded in the current release audit.
 
 ---
 
@@ -1259,9 +1260,9 @@ Implementation evidence: `7e0142a`, `47e54ff`, `ef8b711`, `6ee3323`, and `5494bc
 | Probe/package HLS | ✅ SHIPPED | FULL | local evidence at `6bb8064`; deployed UNVERIFIED | E2 | worker packager | live concurrency and release qualification |
 | API HLS playback | ✅ SHIPPED | FULL | UNVERIFIED | E2 | video route/storage | deployed/browser qualification |
 | Web library/upload/watch | ✅ SHIPPED | FULL | UNVERIFIED | E2 | Next.js app routes | manual refresh/runtime smoke evidence |
-| Playback events | ✅ SHIPPED | FULL approved governance | local/browser evidence at `3021889`; deployed UNVERIFIED | E2 | event route, telemetry services, watch/feed clients | CI, authenticated admin-role qualification, merge/deployment, and production readiness |
+| Playback events | ✅ SHIPPED | FULL approved governance | local/browser evidence at `3021889`; deployed UNVERIFIED | E2 | event route, telemetry services, watch/feed clients | authenticated admin-role qualification, merge/deployment, and production readiness |
 | Admin operations | ⚠️ CHANGE | FULL surface, API allowlist | UNVERIFIED | E1 | admin API/web | frontend route/proxy has no independent role gate |
-| Local stack/smoke | ✅ SHIPPED | FULL | historical | E2 | Compose/Make/smoke | current rerun absent |
+| Local stack/smoke | ✅ SHIPPED | FULL | local candidate evidence at `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187` | E2 | Compose/Make/smoke | deployed runtime remains unverified |
 | Production deployment | 💡 CANDIDATE — NOT APPROVED | UNKNOWN | UNVERIFIED | E5 | none found | no deployment contract |
 
 ## Appendix B — Route and surface matrix
@@ -1344,11 +1345,10 @@ Worker task and Compose process are defined; historical local smoke observed pro
 
 ## Appendix E — Unresolved evidence gaps
 
-1. Current GitHub Actions run and required-check status.
-2. Production deployment existence and URL.
-3. Deployed branch, commit, image digest, migration revision, worker health, and storage configuration.
-4. Branch protection and release policy.
-5. Backup/restore and data-retention policy.
-6. Authenticated browser qualification of the admin role and broader admin surface.
-7. Exact operator identity behavior in a deployed Clerk configuration, including `azp`.
-8. Telemetry policy enforcement is locally verified at `3021889`; CI, deployed-runtime, and production qualification remain unverified.
+1. Production deployment existence and URL.
+2. Deployed branch, commit, image digest, migration revision, worker health, and storage configuration.
+3. Branch protection and release policy.
+4. Backup/restore and data-retention policy.
+5. Authenticated browser qualification of the admin role and broader admin surface.
+6. Exact operator identity behavior in a deployed Clerk configuration, including `azp`.
+7. Telemetry policy enforcement is locally verified at `3021889`; deployed-runtime and production qualification remain unverified.
