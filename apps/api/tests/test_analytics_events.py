@@ -68,6 +68,22 @@ class FakeRedis:
         self.closed = True
 
 
+class FakeMetricsRedis:
+    def __init__(self) -> None:
+        self.counters: dict[str, int] = {}
+        self.closed = False
+
+    async def incr(self, key: str, amount: int = 1) -> int:
+        self.counters[key] = self.counters.get(key, 0) + amount
+        return self.counters[key]
+
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return [str(self.counters[key]) if key in self.counters else None for key in keys]
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
 @pytest.fixture()
 def client() -> Iterator[TestClient]:
     engine = create_async_engine(
@@ -113,6 +129,13 @@ def enable_dev_auth_headers(monkeypatch: pytest.MonkeyPatch) -> None:
 def fake_telemetry_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     client = FakeRedis()
     monkeypatch.setattr(videos_api.telemetry_admission, "redis_client_factory", lambda: client)
+    return client
+
+
+@pytest.fixture(autouse=True)
+def fake_telemetry_metrics(monkeypatch: pytest.MonkeyPatch) -> FakeMetricsRedis:
+    client = FakeMetricsRedis()
+    monkeypatch.setattr(videos_api.telemetry_metrics, "redis_client_factory", lambda: client)
     return client
 
 
@@ -229,6 +252,7 @@ def test_private_video_impression_and_view_require_access(client: TestClient) ->
 def test_playback_event_identity_is_returned_and_retry_is_idempotent(
     client: TestClient,
     fake_telemetry_redis: FakeRedis,
+    fake_telemetry_metrics: FakeMetricsRedis,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     video = client.post("/videos", headers=_headers("owner"), json={"title": "Identified playback"}).json()
@@ -256,6 +280,8 @@ def test_playback_event_identity_is_returned_and_retry_is_idempotent(
     assert retry_body["event_id"] == first_body["event_id"]
     assert record_history.await_count == 1
     assert sum(fake_telemetry_redis.counters.values()) == 1
+    assert fake_telemetry_metrics.counters["atlas:telemetry:metrics:v1:accepted"] == 1
+    assert fake_telemetry_metrics.counters["atlas:telemetry:metrics:v1:duplicate"] == 1
 
 
 def test_same_playback_session_accepts_distinct_event_ids(client: TestClient) -> None:
@@ -313,6 +339,7 @@ def test_playback_event_identity_columns_are_required_and_event_id_is_unique() -
 def test_playback_event_admission_boundary_rejects_121st_event_without_a_row(
     client: TestClient,
     fake_telemetry_redis: FakeRedis,
+    fake_telemetry_metrics: FakeMetricsRedis,
 ) -> None:
     video = client.post("/videos", headers=_headers("boundary-owner"), json={"title": "Admission boundary"}).json()
     _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
@@ -330,6 +357,8 @@ def test_playback_event_admission_boundary_rejects_121st_event_without_a_row(
     assert responses[120].status_code == 429
     assert responses[120].json() == {"detail": {"error": "RateLimited", "message": "Playback telemetry rate limit exceeded"}}
     assert sum(fake_telemetry_redis.counters.values()) == 121
+    assert fake_telemetry_metrics.counters["atlas:telemetry:metrics:v1:accepted"] == 120
+    assert fake_telemetry_metrics.counters["atlas:telemetry:metrics:v1:rate_limited"] == 1
 
     async def count_events() -> int:
         async with app.state.test_session_maker() as session:

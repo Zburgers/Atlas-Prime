@@ -89,3 +89,19 @@ test("home-feed card clicks carry the required telemetry identity", () => {
   assert.match(source, /event_type: "card_click", request_id: requestId/);
   assert.match(source, /onClick=\{\(\) => void recordClick\(\)\}/);
 });
+
+test("admin telemetry health stays aggregate-only and degrades safely", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const api = fs.readFileSync(path.join(__dirname, "../app/components/video-api.ts"), "utf8");
+  const dashboard = fs.readFileSync(path.join(__dirname, "../app/admin/admin-dashboard.tsx"), "utf8");
+  const panel = dashboard.slice(dashboard.indexOf("function TelemetryPanel"), dashboard.indexOf("function OpsPanel"));
+
+  assert.match(api, /export type AdminTelemetryHealth = \{/);
+  assert.match(dashboard, /apiRequest<AdminTelemetryHealth>\("\/admin\/telemetry"/);
+  assert.match(panel, /Playback telemetry health/);
+  assert.match(panel, /Accepted events/);
+  assert.match(panel, /Retention cutoff/);
+  assert.match(panel, /Telemetry metrics are temporarily unavailable/);
+  assert.doesNotMatch(panel, /playback_session_id|event_id|request_id|user_id|video_id|ip_hash|raw event/);
+});

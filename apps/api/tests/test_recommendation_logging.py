@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.api import admin
+from app.api import admin, videos as videos_api
 from app.api.deps import get_session
 from app.db.base import Base
 from app.db.models import Video, VideoRendition
@@ -54,6 +54,14 @@ def client() -> Iterator[TestClient]:
 def enable_dev_auth_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_ALLOW_DEV_AUTH_HEADERS", "true")
     monkeypatch.setenv("ATLAS_ADMIN_CLERK_USER_IDS", "operator")
+
+
+@pytest.fixture(autouse=True)
+def disable_external_telemetry_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def ignore_metric(_metric: str, _amount: int = 1) -> None:
+        return None
+
+    monkeypatch.setattr(videos_api.telemetry_metrics, "increment_metric", ignore_metric)
 
 
 def _headers(user_id: str = "viewer", email: str = "viewer@example.com") -> dict[str, str]:
@@ -197,6 +205,69 @@ def test_admin_can_enqueue_search_reindex_but_viewers_cannot(client: TestClient,
     assert denied.status_code == 403
     assert accepted.status_code == 202
     assert accepted.json() == {"task_id": "search-task-1", "queue": "search"}
+
+
+def test_admin_telemetry_is_aggregate_only_and_allowlisted(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeMetricsRedis:
+        async def mget(self, keys: list[str]) -> list[str]:
+            assert keys == [
+                "atlas:telemetry:metrics:v1:accepted",
+                "atlas:telemetry:metrics:v1:duplicate",
+                "atlas:telemetry:metrics:v1:rate_limited",
+                "atlas:telemetry:metrics:v1:purged",
+            ]
+            return ["12", "3", "4", "5"]
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(admin.telemetry_metrics, "redis_client_factory", FakeMetricsRedis)
+
+    denied = client.get("/admin/telemetry", headers=_headers("viewer"))
+    response = client.get("/admin/telemetry", headers=_headers("operator"))
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["accepted_event_count"] == 12
+    assert response.json()["duplicate_event_count"] == 3
+    assert response.json()["rate_limited_event_count"] == 4
+    assert response.json()["purged_event_count"] == 5
+    assert set(response.json()) == {
+        "status",
+        "accepted_event_count",
+        "duplicate_event_count",
+        "rate_limited_event_count",
+        "purged_event_count",
+        "retention_cutoff",
+    }
+    assert not any(
+        forbidden in response.text
+        for forbidden in ("playback_session_id", "event_id", "request_id", "user_id", "video_id", "ip_hash")
+    )
+
+
+def test_admin_telemetry_degrades_without_breaking_ops_access(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenMetricsRedis:
+        async def mget(self, _keys: list[str]) -> list[str]:
+            raise ConnectionError("metrics unavailable")
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(admin.telemetry_metrics, "redis_client_factory", BrokenMetricsRedis)
+
+    response = client.get("/admin/telemetry", headers=_headers("operator"))
+    ops = client.get("/admin/ops", headers=_headers("operator"))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["accepted_event_count"] is None
+    assert response.json()["duplicate_event_count"] is None
+    assert response.json()["rate_limited_event_count"] is None
+    assert response.json()["purged_event_count"] is None
+    assert "metrics unavailable" not in response.text
+    assert ops.status_code == 200
 
 
 @pytest.mark.parametrize(

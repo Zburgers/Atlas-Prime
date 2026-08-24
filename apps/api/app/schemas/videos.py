@@ -130,6 +130,15 @@ class VideoDebugResponse(VideoResponse):
     thumbnail_storage_key: str | None
 
 
+class AdminTelemetryResponse(BaseModel):
+    status: Literal["ok", "degraded"]
+    accepted_event_count: int | None
+    duplicate_event_count: int | None
+    rate_limited_event_count: int | None
+    purged_event_count: int | None
+    retention_cutoff: datetime
+
+
 class VideoListItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

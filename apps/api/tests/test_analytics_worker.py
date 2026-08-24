@@ -56,6 +56,7 @@ def test_analytics_worker_rebuilds_today_and_yesterday(monkeypatch: pytest.Monke
 
 def test_analytics_worker_purges_telemetry_with_aggregate_summary(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
+    metric_calls: list[tuple[str, int]] = []
 
     class FakeSession:
         async def __aenter__(self) -> object:
@@ -78,6 +79,10 @@ def test_analytics_worker_purges_telemetry_with_aggregate_summary(monkeypatch: p
     now = datetime(2026, 7, 15, 0, 20, tzinfo=timezone.utc)
     monkeypatch.setattr(analytics, "SessionLocal", FakeSession)
     monkeypatch.setattr(analytics, "purge_playback_events", fake_purge)
+    async def fake_metric(_metric: str, _amount: int = 1) -> None:
+        metric_calls.append((_metric, _amount))
+
+    monkeypatch.setattr(analytics.telemetry_metrics, "increment_metric", fake_metric)
 
     summary = asyncio.run(analytics._purge_raw_playback_events(batch_size=3, now=now))
 
@@ -94,3 +99,4 @@ def test_analytics_worker_purges_telemetry_with_aggregate_summary(monkeypatch: p
         "purged_rows": 8,
         "batches": 3,
     }
+    assert metric_calls == [("purged", 8)]

@@ -141,3 +141,33 @@ def test_command_defaults_to_sanitized_dry_run(monkeypatch: pytest.MonkeyPatch, 
         "batches": 0,
     }
     assert "video_id" not in json.dumps(output)
+
+
+def test_command_records_purged_total_after_successful_apply(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    metric_calls: list[tuple[str, int]] = []
+    fixed_now = datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc)
+
+    class FakeSession:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    async def fake_purge(_session: object, *, cutoff: datetime, batch_size: int, apply: bool) -> RetentionSummary:
+        assert apply is True
+        return RetentionSummary(cutoff, batch_size, 4, 4, 2, True)
+
+    async def fake_metric(metric: str, amount: int = 1) -> None:
+        metric_calls.append((metric, amount))
+
+    monkeypatch.setattr(purge_telemetry, "SessionLocal", FakeSession)
+    monkeypatch.setattr(purge_telemetry, "purge_playback_events", fake_purge)
+    monkeypatch.setattr(purge_telemetry.telemetry_metrics, "increment_metric", fake_metric)
+
+    asyncio.run(purge_telemetry.run(apply=True, batch_size=2, now=fixed_now))
+    output = json.loads(capsys.readouterr().out)
+
+    assert metric_calls == [("purged", 4)]
+    assert output["status"] == "applied"
+    assert output["purged_rows"] == 4

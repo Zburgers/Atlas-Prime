@@ -10,6 +10,7 @@ from celery.schedules import crontab
 from app.core import config
 from app.db.session import SessionLocal
 from app.services.analytics import rebuild_daily_metrics
+from app.services import telemetry_metrics
 from app.services.telemetry_retention import DEFAULT_BATCH_SIZE, RetentionSummary, purge_playback_events, retention_cutoff
 
 ANALYTICS_QUEUE = "analytics"
@@ -84,6 +85,7 @@ async def _purge_raw_playback_events(
             batch_size=batch_size,
             apply=True,
         )
+    await telemetry_metrics.increment_metric("purged", result.purged_rows)
     summary = {
         "status": "applied",
         "cutoff": result.cutoff.isoformat(),

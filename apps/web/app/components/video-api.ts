@@ -281,6 +281,15 @@ export type AdminOps = {
   };
 };
 
+export type AdminTelemetryHealth = {
+  status: "ok" | "degraded";
+  accepted_event_count: number | null;
+  duplicate_event_count: number | null;
+  rate_limited_event_count: number | null;
+  purged_event_count: number | null;
+  retention_cutoff: string;
+};
+
 export type AdminRecommendationRequest = { request_id: string; surface: string; algorithm_version: string; total_results: number; created_at: string };
 export type AdminRecommendationDebug = { request_id: string; surface: string; algorithm_version: string; page: number; page_size: number; total_results: number; results: Array<{ video_id: string; rank: number; score: number; reason: string; impression_count: number; playback_event_count: number; view_count: number }> };
 

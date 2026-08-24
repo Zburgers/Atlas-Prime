@@ -51,6 +51,7 @@ from app.services import uploads as upload_service
 from app.services import videos as video_service
 from app.services import subscriptions as subscription_service
 from app.services import telemetry_admission
+from app.services import telemetry_metrics
 from app.services.storage import HlsObjectNotFoundError
 from app.core import config
 
@@ -365,6 +366,7 @@ async def record_playback_event(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={"error": "Conflict", "message": "Event ID already exists"},
             )
+        await telemetry_metrics.increment_metric("duplicate")
         response.status_code = status.HTTP_200_OK
         return existing
 
@@ -375,6 +377,7 @@ async def record_playback_event(
             playback_session_id=payload.playback_session_id,
         )
     except telemetry_admission.TelemetryAdmissionLimitExceeded:
+        await telemetry_metrics.increment_metric("rate_limited")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"error": "RateLimited", "message": "Playback telemetry rate limit exceeded"},
@@ -414,12 +417,14 @@ async def record_playback_event(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={"error": "Conflict", "message": "Event ID already exists"},
             )
+        await telemetry_metrics.increment_metric("duplicate")
         response.status_code = status.HTTP_200_OK
         return existing
     if payload.event_type == "play":
         await subscription_service.record_history(session, user, video, payload.position_seconds)
     await session.commit()
     await session.refresh(event)
+    await telemetry_metrics.increment_metric("accepted")
     if payload.event_type in {"error", "unsupported"}:
         logger.warning(
             "sector=G stage=playback_event video_id=%s user_id=%s event_type=%s position_seconds=%s quality_label=%s",

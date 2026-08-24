@@ -12,8 +12,9 @@ from app.db.models import PlaybackEvent, Video, VideoProcessingJob
 from app.domain.status import VideoStatus
 from app.schemas.feed import RecommendationAdminResponse, RecommendationDebugResponse, RecommendationRequestSummaryResponse
 from app.schemas.search import SearchReindexResponse, SearchResponse
-from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminVideoDebugResponse, RenditionDebugResponse, VideoDebugResponse
+from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminTelemetryResponse, AdminVideoDebugResponse, RenditionDebugResponse, VideoDebugResponse
 from app.services import recommendation_logging, search as search_service
+from app.services import telemetry_metrics
 from app.core import config
 from app.api.search import _video_list_item
 
@@ -64,6 +65,19 @@ async def ops_status(_user: AdminUserDep, processing_queue: ProcessingQueueDep) 
             "media_queue_depth": queue.media_queue_depth,
             "error": queue.error,
         },
+    )
+
+
+@router.get("/telemetry", response_model=AdminTelemetryResponse)
+async def telemetry_status(_user: AdminUserDep) -> AdminTelemetryResponse:
+    metrics = await telemetry_metrics.read_metrics()
+    return AdminTelemetryResponse(
+        status=metrics.status,
+        accepted_event_count=metrics.accepted_event_count,
+        duplicate_event_count=metrics.duplicate_event_count,
+        rate_limited_event_count=metrics.rate_limited_event_count,
+        purged_event_count=metrics.purged_event_count,
+        retention_cutoff=metrics.retention_cutoff,
     )
 
 

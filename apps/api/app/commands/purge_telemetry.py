@@ -15,6 +15,7 @@ from app.services.telemetry_retention import (
     retention_cutoff,
     validate_batch_size,
 )
+from app.services import telemetry_metrics
 
 
 def batch_size_arg(value: str) -> int:
@@ -56,6 +57,7 @@ async def run(*, apply: bool, batch_size: int = DEFAULT_BATCH_SIZE, now: datetim
     cutoff = retention_cutoff(now=now or datetime.now(timezone.utc))
     async with SessionLocal() as session:
         summary = await purge_playback_events(session, cutoff=cutoff, batch_size=batch_size, apply=apply)
+    await telemetry_metrics.increment_metric("purged", summary.purged_rows)
     print(json.dumps(summary_payload(summary), sort_keys=True))
     return summary
 
