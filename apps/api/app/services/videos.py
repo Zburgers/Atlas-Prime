@@ -170,7 +170,14 @@ async def processing_status(session: AsyncSession, user: User | None, video_id: 
 
 async def video_with_renditions_for_playback(session: AsyncSession, user: User | None, video_id: UUID) -> Video:
     result = await session.execute(
-        select(Video).options(selectinload(Video.renditions), selectinload(Video.text_tracks), selectinload(Video.chapters)).where(Video.id == video_id)
+        select(Video)
+        .options(
+            selectinload(Video.renditions),
+            selectinload(Video.asset_inventory),
+            selectinload(Video.text_tracks),
+            selectinload(Video.chapters),
+        )
+        .where(Video.id == video_id)
     )
     video = result.scalar_one_or_none()
     if video is None:
@@ -189,7 +196,9 @@ async def video_with_renditions_for_playback(session: AsyncSession, user: User |
 
 async def video_with_renditions_for_signed_delivery(session: AsyncSession, video_id: UUID) -> Video:
     result = await session.execute(
-        select(Video).options(selectinload(Video.renditions)).where(Video.id == video_id)
+        select(Video)
+        .options(selectinload(Video.renditions), selectinload(Video.asset_inventory))
+        .where(Video.id == video_id)
     )
     video = result.scalar_one_or_none()
     if video is None or video.moderation_status == ModerationStatus.REMOVED.value:

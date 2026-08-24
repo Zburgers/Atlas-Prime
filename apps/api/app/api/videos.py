@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import timedelta
 from typing import Annotated
@@ -10,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, File, HTTPException, Path, Query, Request, Response, UploadFile, status
 from fastapi.responses import RedirectResponse
 
-from app.db.models import PlaybackEvent
+from app.db.models import PlaybackEvent, VideoAssetInventory
 from app.api.deps import (
     CurrentUserDep,
     OptionalCurrentUserDep,
@@ -248,7 +249,17 @@ async def hls_asset(
                 asset_path,
             )
         raise
-    storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
+    try:
+        storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            logger.warning(
+                "sector=G stage=hls_asset_missing request_id=%s video_id=%s asset_path=%s",
+                request_id,
+                video_id,
+                asset_path,
+            )
+        raise
     try:
         hls_object = storage.get_hls_object(key=storage_key)
     except HlsObjectNotFoundError:
@@ -435,39 +446,70 @@ def _resolve_hls_asset(video: object, asset_path: str) -> tuple[str, str, str]:
     if any(part in {"", ".", ".."} for part in parts):
         raise _invalid_hls_path()
 
-    root = f"processed/{video.id}/hls/"
-    expected_key = f"{root}{asset_path}"
-
     if asset_path == "master.m3u8":
-        if expected_key != video.hls_master_storage_key:
+        media_type, cache_control = PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
+    elif asset_path == "thumbnail.jpg":
+        media_type, cache_control = THUMBNAIL_MEDIA_TYPE, THUMBNAIL_CACHE_CONTROL
+    else:
+        if len(parts) != 2:
             raise _invalid_hls_path()
-        return expected_key, PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
 
-    if asset_path == "thumbnail.jpg":
-        if expected_key != video.thumbnail_storage_key:
+        rendition_label, filename = parts
+        rendition = next((item for item in video.renditions if item.label == rendition_label), None)
+        if rendition is None:
             raise _invalid_hls_path()
-        return expected_key, THUMBNAIL_MEDIA_TYPE, THUMBNAIL_CACHE_CONTROL
 
-    if len(parts) != 2:
+        if filename == "playlist.m3u8":
+            media_type, cache_control = PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
+        else:
+            suffix = "." + filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
+            if not filename.startswith("segment_") or suffix not in SEGMENT_MEDIA_TYPES:
+                raise _invalid_hls_path()
+            media_type, cache_control = SEGMENT_MEDIA_TYPES[suffix], SEGMENT_CACHE_CONTROL
+
+    generation = _published_hls_generation(video)
+    if generation is None:
+        raise _hls_asset_not_found()
+
+    inventory_asset = next(
+        (
+            asset
+            for asset in getattr(video, "asset_inventory", ())
+            if isinstance(asset, VideoAssetInventory)
+            and asset.generation == generation
+            and asset.relative_path == asset_path
+        ),
+        None,
+    )
+    if inventory_asset is None:
+        raise _hls_asset_not_found()
+
+    relative_path = inventory_asset.relative_path
+    if relative_path != asset_path or not _is_safe_hls_relative_path(relative_path):
         raise _invalid_hls_path()
 
-    rendition_label, filename = parts
-    rendition = next((item for item in video.renditions if item.label == rendition_label), None)
-    if rendition is None:
-        raise _invalid_hls_path()
+    storage_key = f"processed/{video.id}/attempts/{generation}/hls/{relative_path}"
+    return storage_key, media_type, cache_control
 
-    if filename == "playlist.m3u8":
-        if expected_key != rendition.playlist_storage_key:
-            raise _invalid_hls_path()
-        return expected_key, PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
 
-    suffix = "." + filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
-    if not filename.startswith("segment_") or suffix not in SEGMENT_MEDIA_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "BadRequest", "message": "Invalid HLS asset path"},
-        )
-    return expected_key, SEGMENT_MEDIA_TYPES[suffix], SEGMENT_CACHE_CONTROL
+def _published_hls_generation(video: object) -> UUID | None:
+    storage_key = getattr(video, "hls_master_storage_key", None)
+    if not isinstance(storage_key, str):
+        return None
+    match = re.fullmatch(
+        rf"processed/{re.escape(str(video.id))}/attempts/"
+        r"(?P<generation>[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/hls/master\.m3u8",
+        storage_key,
+    )
+    if match is None:
+        return None
+    return UUID(match.group("generation"))
+
+
+def _is_safe_hls_relative_path(relative_path: str) -> bool:
+    if "\\" in relative_path or relative_path.startswith("/") or relative_path.startswith(".") or "//" in relative_path:
+        return False
+    return all(part not in {"", ".", ".."} for part in relative_path.split("/"))
 
 
 def _rewrite_delivery_playlist(body: bytes, token: str) -> bytes:
@@ -487,4 +529,11 @@ def _invalid_hls_path() -> HTTPException:
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail={"error": "BadRequest", "message": "Invalid HLS asset path"},
+    )
+
+
+def _hls_asset_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={"error": "NotFound", "message": "HLS asset not found"},
     )

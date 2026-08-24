@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.models import Video, VideoProcessingJob, VideoRendition
+from app.db.models import Video, VideoAssetInventory, VideoProcessingJob, VideoRendition
 from app.db.session import get_session
 from app.api.deps import get_original_storage, get_processed_hls_storage, get_processing_queue
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
@@ -66,6 +66,13 @@ def _headers(user_id: str = "user_123", email: str = "user@example.com") -> dict
 
 def _minimal_mp4(payload: bytes = b"atlas") -> bytes:
     return b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + payload
+
+
+PUBLISHED_GENERATION = UUID("12345678-1234-4234-8234-1234567890ab")
+
+
+def _hls_key(video_id: str, relative_path: str, generation: UUID = PUBLISHED_GENERATION) -> str:
+    return f"processed/{video_id}/attempts/{generation}/hls/{relative_path}"
 
 
 class FakeOriginalStorage:
@@ -167,8 +174,8 @@ def _mark_video_ready(client: TestClient, *, video_id: str, privacy: VideoPrivac
             assert video is not None
             video.status = VideoStatus.READY.value
             video.privacy = privacy.value
-            video.hls_master_storage_key = f"processed/{video_id}/hls/master.m3u8"
-            video.thumbnail_storage_key = f"processed/{video_id}/hls/thumbnail.jpg"
+            video.hls_master_storage_key = _hls_key(video_id, "master.m3u8")
+            video.thumbnail_storage_key = _hls_key(video_id, "thumbnail.jpg")
             session.add(
                 VideoRendition(
                     video_id=video.id,
@@ -176,10 +183,26 @@ def _mark_video_ready(client: TestClient, *, video_id: str, privacy: VideoPrivac
                     width=640,
                     height=360,
                     target_bitrate=800_000,
-                    playlist_storage_key=f"processed/{video_id}/hls/360p/playlist.m3u8",
+                    playlist_storage_key=_hls_key(video_id, "360p/playlist.m3u8"),
                     status=RenditionStatus.READY.value,
                 )
             )
+            for relative_path, content_type, size_bytes in (
+                ("master.m3u8", "application/vnd.apple.mpegurl", 8),
+                ("thumbnail.jpg", "image/jpeg", 3),
+                ("360p/playlist.m3u8", "application/vnd.apple.mpegurl", 8),
+                ("360p/segment_000.ts", "video/mp2t", 12),
+            ):
+                session.add(
+                    VideoAssetInventory(
+                        video_id=video.id,
+                        generation=PUBLISHED_GENERATION,
+                        relative_path=relative_path,
+                        content_type=content_type,
+                        size_bytes=size_bytes,
+                        sha256="a" * 64,
+                    )
+                )
             await session.commit()
 
     asyncio.run(mark_ready())
@@ -564,7 +587,7 @@ def test_playback_metadata_and_hls_master_are_served_for_owner(client: TestClien
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
-    master_key = f"processed/{video_id}/hls/master.m3u8"
+    master_key = _hls_key(video_id, "master.m3u8")
     storage = FakeProcessedHlsStorage({master_key: (b"#EXTM3U\n", "application/vnd.apple.mpegurl")})
     _install_hls_fake(storage)
 
@@ -612,7 +635,7 @@ def test_hls_segment_uses_immutable_cache_headers(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready segment"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
-    segment_key = f"processed/{video_id}/hls/360p/segment_000.ts"
+    segment_key = _hls_key(video_id, "360p/segment_000.ts")
     storage = FakeProcessedHlsStorage({segment_key: (b"segment-data", "video/mp2t")})
     _install_hls_fake(storage)
 
@@ -647,7 +670,7 @@ def test_signed_delivery_redirects_segment_bytes_to_minio(client: TestClient, mo
 
     assert response.status_code == 307
     assert response.headers["location"] == storage.presigned_url
-    assert storage.presigned_requests[0][0] == f"processed/{video_id}/hls/360p/segment_000.ts"
+    assert storage.presigned_requests[0][0] == _hls_key(video_id, "360p/segment_000.ts")
 
 
 def test_signed_delivery_rewrites_playlist_uris_with_the_token(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -658,8 +681,8 @@ def test_signed_delivery_rewrites_playlist_uris_with_the_token(client: TestClien
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Rewrite playlist"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
-    master_key = f"processed/{video_id}/hls/master.m3u8"
-    rendition_key = f"processed/{video_id}/hls/360p/playlist.m3u8"
+    master_key = _hls_key(video_id, "master.m3u8")
+    rendition_key = _hls_key(video_id, "360p/playlist.m3u8")
     storage = FakeProcessedHlsStorage(
         {
             master_key: (b"#EXTM3U\n360p/playlist.m3u8\n", "application/vnd.apple.mpegurl"),
@@ -751,7 +774,7 @@ def test_signed_delivery_allows_anonymous_public_and_unlisted_playback(
 
     assert playback.status_code == 200
     assert delivery.status_code == 307
-    assert storage.presigned_requests[0][0] == f"processed/{video_id}/hls/360p/segment_000.ts"
+    assert storage.presigned_requests[0][0] == _hls_key(video_id, "360p/segment_000.ts")
 
 
 def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient, caplog) -> None:
@@ -777,7 +800,7 @@ def test_public_hls_asset_can_be_served_without_identity(client: TestClient) -> 
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Public ready"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id, privacy=VideoPrivacy.PUBLIC)
-    thumbnail_key = f"processed/{video_id}/hls/thumbnail.jpg"
+    thumbnail_key = _hls_key(video_id, "thumbnail.jpg")
     storage = FakeProcessedHlsStorage({thumbnail_key: (b"jpg", "image/jpeg")})
     _install_hls_fake(storage)
 
@@ -808,7 +831,7 @@ def test_hls_unknown_allowed_asset_returns_404(client: TestClient, caplog) -> No
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Missing object"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
-    storage = FakeProcessedHlsStorage()
+    storage = FakeProcessedHlsStorage({_hls_key(video_id, "360p/segment_999.ts"): (b"stale-object", "video/mp2t")})
     _install_hls_fake(storage)
 
     with caplog.at_level("WARNING"):
@@ -820,8 +843,60 @@ def test_hls_unknown_allowed_asset_returns_404(client: TestClient, caplog) -> No
     assert response.status_code == 404
     assert response.json()["detail"]["message"] == "HLS asset not found"
     assert response.headers["x-request-id"] == "hls-missing-1"
-    assert storage.requests == [f"processed/{video_id}/hls/360p/segment_999.ts"]
+    assert storage.requests == []
     assert "stage=hls_asset_missing request_id=hls-missing-1" in caplog.text
+
+
+def test_hls_old_generation_is_not_served_even_when_object_exists(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Old generation"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    old_generation = UUID("87654321-4321-4321-8321-ba0987654321")
+
+    async def publish_old_generation() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            video.hls_master_storage_key = _hls_key(video_id, "master.m3u8", old_generation)
+            await session.commit()
+
+    import asyncio
+
+    asyncio.run(publish_old_generation())
+    storage = FakeProcessedHlsStorage({_hls_key(video_id, "master.m3u8", old_generation): (b"old", "application/vnd.apple.mpegurl")})
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("owner"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["message"] == "HLS asset not found"
+    assert storage.requests == []
+
+
+def test_legacy_hls_publication_key_is_unbound_and_not_served(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Legacy publication"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+
+    async def publish_legacy_key() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            video.hls_master_storage_key = f"processed/{video_id}/hls/master.m3u8"
+            await session.commit()
+
+    import asyncio
+
+    asyncio.run(publish_legacy_key())
+    legacy_key = f"processed/{video_id}/hls/master.m3u8"
+    storage = FakeProcessedHlsStorage({legacy_key: (b"legacy", "application/vnd.apple.mpegurl")})
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("owner"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["message"] == "HLS asset not found"
+    assert storage.requests == []
 
 
 def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> None:

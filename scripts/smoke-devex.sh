@@ -234,6 +234,7 @@ _status, segment_headers, segment_body = request("GET", segment_url, headers=own
 assert segment_body, "segment response was empty"
 assert "immutable" in segment_headers.get("Cache-Control", "")
 request("GET", f"/videos/{good_id}/hls/thumbnail.jpg", headers=owner_headers)
+request("GET", f"/videos/{good_id}/hls/360p/segment_999.ts", headers=owner_headers, expect=404)
 
 bad = json_request(
     "POST",
