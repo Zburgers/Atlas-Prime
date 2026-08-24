@@ -22,6 +22,18 @@ test("CI smoke mode bypasses Clerk only for the disposable smoke process", () =>
   assert.match(layout, /<a className="skipLink" href="#main-content">Skip to main content<\/a>/);
 });
 
+test("web proxy keeps Clerk middleware out of exact CI smoke mode", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const proxy = fs.readFileSync(path.join(__dirname, "../proxy.ts"), "utf8");
+
+  assert.match(proxy, /import \{ clerkMiddleware \} from "@clerk\/nextjs\/server";/);
+  assert.match(proxy, /import \{ NextResponse \} from "next\/server";/);
+  assert.match(proxy, /const smokeMode = process\.env\.ATLAS_CI_SMOKE_MODE === "true";/);
+  assert.match(proxy, /export default smokeMode \? \(\) => NextResponse\.next\(\) : clerkMiddleware\(\);/);
+  assert.match(proxy, /export const config = \{/);
+});
+
 test("normal video contracts redact storage and queue internals", () => {
   const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../app/components/video-api.ts"), "utf8");
 

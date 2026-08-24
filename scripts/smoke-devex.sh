@@ -23,7 +23,6 @@ fi
 
 export ATLAS_CI_SMOKE_MODE=true
 export ATLAS_ALLOW_DEV_AUTH_HEADERS=true
-# The existing Clerk middleware still initializes before the smoke-only shell.
 # This is a non-secret placeholder and is never written to .env or used by normal startup.
 smoke_clerk_secret_key=sk_test_atlas_prime_ci_smoke_only_000000
 export CLERK_SECRET_KEY="$smoke_clerk_secret_key"
