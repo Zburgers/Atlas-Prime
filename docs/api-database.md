@@ -1,6 +1,6 @@
 # API and Database Contract
 
-Status: Sector B/F foundation plus Sector C upload path; upload/job generation hardening reconciled
+Status: Sector B/F foundation plus media publication/deletion contracts reconciled
 Last updated: 24-08-2026
 
 ## Database Access
@@ -16,6 +16,7 @@ Last updated: 24-08-2026
 - `users` stores Clerk identity with `clerk_user_id`; no password fields exist.
 - `videos` stores owner, privacy, canonical lifecycle status, media metadata, storage keys, failure fields, and the nullable `active_processing_generation` UUID for the current upload/processing generation.
 - `video_renditions` stores one row per generated HLS rendition.
+- `video_asset_inventory` stores the committed generated HLS manifest for each published generation, including relative path, content type, byte size, and SHA-256.
 - `video_processing_jobs` stores durable worker job attempts, each with a non-null `generation` UUID. A partial unique index permits at most one `queued` or `running` job per video.
 - `playback_events` is present for later player observability.
 
@@ -34,6 +35,7 @@ Last updated: 24-08-2026
 - `GET /me`, video mutations, processing enqueue, and admin routes require a valid Clerk identity.
 - `GET /videos`, `GET /videos/{video_id}`, processing status, playback metadata, and HLS proxy authorization allow anonymous requests only for `ready` videos with `public` or `unlisted` privacy.
 - Draft/uploading/uploaded/queued/probing/processing/failed videos remain owner-only regardless of privacy.
+- A tombstoned video is missing from all normal creator/public reads and mutations, including listing, detail, processing status, playback, upload, process, update, and delete lookup. The tombstone row remains available to protected operator/debug surfaces.
 - Development identity headers are disabled by default. Set `ATLAS_ALLOW_DEV_AUTH_HEADERS=true` only for local smoke/tests that intentionally use `X-Atlas-Dev-Clerk-User-Id`.
 
 ## Product and operator response schemas
@@ -53,6 +55,15 @@ The Next.js backend proxy forwards the caller's Clerk credentials and remains a 
 - Originals are stored in the private originals bucket using `originals/{video_id}/source.{ext}`.
 - A successful upload atomically claims `draft` or `failed` as `uploading`, assigns `videos.active_processing_generation`, stores `videos.original_storage_key`, creates a matching `video_processing_jobs.generation`, transitions the video to `queued`, and enqueues Celery task `media_worker.process_video`.
 - Invalid uploads transition the owned video to `failed` with a sanitized failure code/message. Cross-user uploads are rejected before storage.
+
+## Media publication and deletion contract
+
+- Generated HLS assets are immutable and attempt-scoped:
+  `processed/{video_id}/attempts/{generation}/hls/{relative_path}`. The current worker never writes the legacy `processed/{video_id}/hls/` prefix, and inventory-bound playback rejects legacy publication keys.
+- The worker upload interface returns a typed record for every uploaded asset: storage key, HLS-rooted relative path, content type, byte size, and SHA-256 checksum. Upload failure cleanup is limited to the matching video/generation attempt prefix.
+- Publication is a single fenced synchronous psycopg transaction. It validates a complete master, rendition playlist and segment manifest plus `thumbnail.jpg`, inserts the generation's `video_asset_inventory` rows, replaces generated rendition/thumbnail rows, and advances the matching job/video state. The fence matches video, job, generation, and active generation and requires `deleted_at IS NULL` with `deletion_status = 'complete'`; any later fence failure rolls back every publication mutation. The previous published attempt is deleted only after commit.
+- `videos.hls_master_storage_key` identifies the committed published attempt. Playback derives the published generation from that strict key and authorizes each requested relative path by inventory membership before any storage read. Valid-but-uninventoried, stale-generation, and legacy paths are 404; traversal and malformed paths remain 400.
+- `DELETE /videos/{video_id}` is asynchronous. The owner transaction locks the row, records `deleted_at`, sets `deletion_status = 'pending'`, clears `active_processing_generation`, fences queued/running work, and returns 202 before external storage I/O. Fresh-session cleanup removes the original and `processed/{video_id}/` objects through storage abstractions, then marks the tombstone complete and clears stale storage pointers. Failures preserve retryable keys/state with a sanitized `deletion_error`; `make deletion-reconcile` retries pending, running, and failed tombstones without clearing `deleted_at` or resurrecting content.
 
 ## Processing Generation and Queue Contract
 
