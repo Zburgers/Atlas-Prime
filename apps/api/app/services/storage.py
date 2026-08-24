@@ -159,6 +159,8 @@ class MinioProcessedHlsStorage(ProcessedHlsStorage):
             if not response.get("IsTruncated"):
                 return deleted
             continuation_token = response.get("NextContinuationToken")
+            if not continuation_token:
+                raise RuntimeError(f"processed object listing did not provide a continuation token for video {video_id}")
 
     def presign_hls_object(self, *, key: str, expires_in: int) -> str:
         return self._presign_client.generate_presigned_url("get_object", Params={"Bucket": self._bucket, "Key": key}, ExpiresIn=expires_in)

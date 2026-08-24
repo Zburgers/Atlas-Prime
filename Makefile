@@ -17,6 +17,7 @@ help:
 		'  make analytics-rebuild DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD  Rebuild daily analytics' \
 		'  make search-reindex  Enqueue a public-video search index rebuild' \
 		'  make processing-recover-stale [ARGS="--apply"]  Inspect/fail abandoned processing jobs (dry run by default)' \
+		'  make deletion-reconcile  Reconcile pending/running/failed video tombstones' \
 		'  make fixture    Generate a tiny legal MP4 fixture with ffmpeg'
 
 .PHONY: env
@@ -80,3 +81,7 @@ search-reindex: env
 .PHONY: processing-recover-stale
 processing-recover-stale: env
 	$(COMPOSE) run --rm --build api python -m app.commands.recover_stale_jobs $(ARGS)
+
+.PHONY: deletion-reconcile
+deletion-reconcile: env
+	$(COMPOSE) run --rm --build api python -m app.commands.reconcile_deletions --apply

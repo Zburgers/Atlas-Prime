@@ -17,6 +17,7 @@ from app.api.deps import get_original_storage, get_processed_hls_storage, get_pr
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
 from app.services.processing_queue import QueueInspection, WorkerInspection
+from app.services import videos as video_service
 from app.services.storage import HlsObject, HlsObjectNotFoundError, StoredObject, original_storage_key
 from app.services.uploads import _mark_video_failed
 
@@ -225,7 +226,7 @@ def test_create_video_defaults_to_private_draft(client: TestClient) -> None:
     assert body["owner_id"]
 
 
-def test_deleting_a_video_removes_original_and_processed_storage(client: TestClient) -> None:
+def test_deleting_a_video_removes_original_and_processed_storage(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     class LifecycleOriginalStorage:
         def __init__(self) -> None:
             self.deleted: list[str] = []
@@ -257,9 +258,11 @@ def test_deleting_a_video_removes_original_and_processed_storage(client: TestCli
             await session.commit()
 
     asyncio.run(set_original())
+    monkeypatch.setattr(video_service, "SessionLocal", app.state.test_session_maker)
     response = client.delete(f"/videos/{video['id']}", headers=_headers("owner"))
 
-    assert response.status_code == 204
+    assert response.status_code == 202
+    assert response.json() == {"video_id": video["id"], "deletion_status": "pending"}
     assert original.deleted == [f"originals/{video['id']}/source.mp4"]
     assert processed.deleted == [video["id"]]
 

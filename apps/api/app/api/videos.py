@@ -8,7 +8,7 @@ from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, Path, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Path, Query, Request, Response, UploadFile, status
 from fastapi.responses import RedirectResponse
 
 from app.db.models import PlaybackEvent, VideoAssetInventory
@@ -139,16 +139,24 @@ async def update_video(video_id: UUID, payload: VideoUpdate, session: SessionDep
     return await video_service.update_video(session, user, video_id, payload)
 
 
-@router.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/videos/{video_id}", status_code=status.HTTP_202_ACCEPTED)
 async def delete_video(
     video_id: UUID,
+    background_tasks: BackgroundTasks,
     session: SessionDep,
     user: CurrentUserDep,
     original_storage: OriginalStorageDep,
     processed_storage: ProcessedHlsStorageDep,
-) -> Response:
-    await video_service.delete_video(session, user, video_id, original_storage, processed_storage)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+) -> dict[str, object]:
+    result = await video_service.delete_video(session, user, video_id)
+    if result.should_schedule:
+        background_tasks.add_task(
+            video_service.cleanup_deleted_video,
+            result.video_id,
+            original_storage,
+            processed_storage,
+        )
+    return {"video_id": result.video_id, "deletion_status": result.deletion_status}
 
 
 @router.post("/videos/{video_id}/process", response_model=ProcessingJobResponse, status_code=status.HTTP_201_CREATED)
