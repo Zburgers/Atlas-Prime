@@ -4,13 +4,15 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, JSON, CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
 from app.db.base import Base
 from app.domain.status import (
     CANONICAL_VIDEO_STATUS_VALUES,
+    DELETION_STATUS_VALUES,
+    DeletionStatus,
     MODERATION_STATUS_VALUES,
     PRIVACY_VALUES,
     JobStatus,
@@ -70,6 +72,7 @@ class Video(Base):
     __table_args__ = (
         CheckConstraint(f"privacy in {_values_sql(PRIVACY_VALUES)}", name="ck_videos_privacy"),
         CheckConstraint(f"status in {_values_sql(CANONICAL_VIDEO_STATUS_VALUES)}", name="ck_videos_status"),
+        CheckConstraint(f"deletion_status in {_values_sql(DELETION_STATUS_VALUES)}", name="ck_videos_deletion_status"),
         CheckConstraint(f"moderation_status in {_values_sql(MODERATION_STATUS_VALUES)}", name="ck_videos_moderation_status"),
         CheckConstraint("duration_seconds is null or duration_seconds >= 0", name="ck_videos_duration_nonnegative"),
         CheckConstraint("width is null or width > 0", name="ck_videos_width_positive"),
@@ -91,6 +94,14 @@ class Video(Base):
     description: Mapped[str | None] = mapped_column(Text)
     privacy: Mapped[str] = mapped_column(Text, nullable=False, default=VideoPrivacy.PRIVATE.value, server_default=VideoPrivacy.PRIVATE.value)
     status: Mapped[str] = mapped_column(Text, nullable=False, default=VideoStatus.DRAFT.value, server_default=VideoStatus.DRAFT.value)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deletion_status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=DeletionStatus.COMPLETE.value,
+        server_default=DeletionStatus.COMPLETE.value,
+    )
+    deletion_error: Mapped[str | None] = mapped_column(Text)
     moderation_status: Mapped[str] = mapped_column(Text, nullable=False, default="approved", server_default="approved")
     original_storage_key: Mapped[str | None] = mapped_column(Text)
     hls_master_storage_key: Mapped[str | None] = mapped_column(Text)
@@ -115,6 +126,7 @@ class Video(Base):
     channel: Mapped[Channel | None] = relationship(back_populates="videos")
     renditions: Mapped[list[VideoRendition]] = relationship(back_populates="video", cascade="all, delete-orphan")
     processing_jobs: Mapped[list[VideoProcessingJob]] = relationship(back_populates="video", cascade="all, delete-orphan")
+    asset_inventory: Mapped[list[VideoAssetInventory]] = relationship(back_populates="video", cascade="all, delete-orphan")
     impressions: Mapped[list[VideoImpression]] = relationship(back_populates="video", cascade="all, delete-orphan")
     views: Mapped[list[VideoView]] = relationship(back_populates="video", cascade="all, delete-orphan")
     reactions: Mapped[list[VideoReaction]] = relationship(back_populates="video", cascade="all, delete-orphan")
@@ -205,6 +217,32 @@ class VideoProcessingJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="processing_jobs")
+
+
+class VideoAssetInventory(Base):
+    __tablename__ = "video_asset_inventory"
+    __table_args__ = (
+        CheckConstraint("size_bytes >= 0", name="ck_video_asset_inventory_size_nonnegative"),
+        UniqueConstraint(
+            "video_id",
+            "generation",
+            "relative_path",
+            name="uq_video_asset_inventory_video_generation_path",
+        ),
+        Index("ix_video_asset_inventory_video_generation", "video_id", "generation"),
+        Index("ix_video_asset_inventory_video_id", "video_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    generation: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    video: Mapped[Video] = relationship(back_populates="asset_inventory")
 
 
 class PlaybackEvent(Base):
