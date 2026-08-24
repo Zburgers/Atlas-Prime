@@ -85,6 +85,9 @@ services:
   api:
     build:
       context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     env_file:
       - .env
     environment:
@@ -106,6 +109,8 @@ services:
       MEILISEARCH_URL: ${MEILISEARCH_URL:-http://search:7700}
       MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
       ATLAS_UPLOAD_MAX_BYTES: ${ATLAS_UPLOAD_MAX_BYTES:-104857600}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
@@ -164,12 +169,17 @@ services:
   analytics-worker:
     build:
       context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     env_file:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://atlas:atlas@postgres:5432/atlas_prime}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     command: ["celery", "-A", "app.worker.analytics", "worker", "--loglevel=info", "--queues=analytics", "--hostname=analytics-worker@%h", "--concurrency=1"]
     depends_on:
       api:
@@ -187,12 +197,17 @@ services:
   search-worker:
     build:
       context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     env_file:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://atlas:atlas@postgres:5432/atlas_prime}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
       MEILISEARCH_URL: ${MEILISEARCH_URL:-http://search:7700}
       MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
     command: ["celery", "-A", "app.worker.search", "worker", "--loglevel=info", "--queues=search", "--hostname=search-worker@%h", "--concurrency=1"]
@@ -214,11 +229,16 @@ services:
   analytics-beat:
     build:
       context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     env_file:
       - .env
     environment:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     command: ["celery", "-A", "app.worker.analytics", "beat", "--loglevel=info"]
     depends_on:
       analytics-worker:
@@ -232,12 +252,16 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-${CLERK_PUBLISHABLE_KEY:-}}
         CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     env_file:
       - .env
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
       ATLAS_API_BASE_URL: ${ATLAS_API_BASE_URL:-http://api:8000}
       ATLAS_CI_SMOKE_MODE: ${ATLAS_CI_SMOKE_MODE:-false}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-${CLERK_PUBLISHABLE_KEY:-}}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
@@ -257,6 +281,12 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       target: builder
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-${CLERK_PUBLISHABLE_KEY:-}}
+        CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     profiles:
       - test
     command: ["npm", "--workspace", "apps/web", "test"]

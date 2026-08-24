@@ -7,6 +7,14 @@ def env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
 
+def build_sha() -> str:
+    return env("ATLAS_BUILD_SHA", "unknown")
+
+
+def build_time() -> str:
+    return env("ATLAS_BUILD_TIME", "unknown")
+
+
 def database_url() -> str:
     raw = env("DATABASE_URL", "postgresql+asyncpg://atlas:atlas@postgres:5432/atlas_prime")
     if raw.startswith("postgresql://"):
