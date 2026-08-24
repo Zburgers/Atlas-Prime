@@ -59,8 +59,8 @@ The rollout branch resolves or partially resolves several original findings:
 | C-001 admin authorization | PARTIAL | FastAPI admin routes use `AdminUserDep` backed by `ATLAS_ADMIN_CLERK_USER_IDS`; API regression coverage is green at `bac7a89`, while the Next proxy remains transport-only and has no independent role gate |
 | C-002 unlisted discovery | RESOLVED | `list_visible_videos()` exposes only ready, public, moderation-approved videos to non-owners |
 | C-003 response internals | RESOLVED | product schemas redact storage keys/task IDs and explicit operator debug schemas retain them; API/frontend coverage is green at `fd62a20` and `d79b42f` |
-| C-004 upload idempotency | OPEN | upload remains read-then-write and accepts `uploading` as a starting state |
-| C-005 attempt ownership | PARTIAL | worker atomically claims queued job/video, but no generation lease or stale-finalization fence exists |
+| C-004 upload idempotency | RESOLVED | atomic upload claim assigns one active generation; concurrent losers are rejected before storage/queue side effects at `392f7af` |
+| C-005 attempt ownership | RESOLVED | generation propagation and worker transition fencing complete through `0ca718e`; bounded stale recovery is explicit and dry-run by default at `6bb8064` |
 | C-006 atomic publication | PARTIAL | partial HLS cleanup exists; uploads still target a shared deterministic prefix |
 | C-007 deletion cleanup | PARTIAL | synchronous original/processed object cleanup exists; durable retry semantics are absent |
 | C-008 active-worker deletion fence | OPEN | no tombstone/generation guard prevents post-delete recreation |
@@ -235,23 +235,23 @@ draft → uploading → uploaded → queued → probing → processing → ready
 
 ### 4.3 Original upload and queue dispatch ✅ SHIPPED
 
-**Implementation completeness:** FULL with reliability gaps
-**Runtime state:** UNVERIFIED
+**Implementation completeness:** FULL for upload ownership and job generation
+**Runtime state:** local evidence recorded; live/deployed runtime remains UNVERIFIED
 **Evidence strength:** E2
 **Confidence:** HIGH
 
 **Actors:** owner only.
-**Preconditions:** video status is `draft`, `uploading`, or `failed` under current code; supported extension/content type; size within `ATLAS_UPLOAD_MAX_BYTES`; lightweight container signature matches.
-**Happy path:** upload is buffered, written to `originals/{video_id}/source.{ext}`, video advances to `uploaded`, job row is created, Celery task `media_worker.process_video` is dispatched, and video advances to `queued`.
+**Preconditions:** video status is `draft` or `failed`; supported extension/content type; size within `ATLAS_UPLOAD_MAX_BYTES`; lightweight container signature matches.
+**Happy path:** an atomic claim moves the video from `draft` or `failed` to `uploading` and assigns `active_processing_generation`; upload is buffered and written to `originals/{video_id}/source.{ext}`, a job with the same generation is created, the four-field Celery payload is dispatched, and video advances to `queued`.
 **Failure paths:** validation or storage/queue failure marks the video `failed` with sanitized details.
 **Evidence:** `apps/api/app/services/uploads.py`, `apps/api/app/services/storage.py`, `apps/api/app/services/processing_queue.py`, `scripts/smoke-devex.sh`.
 
-**Required change:** exactly one upload attempt must own a video transition; duplicate/concurrent upload requests must be rejected or idempotently coalesced.
+**Resolution:** C-004 upload ownership and idempotency are implemented at `392f7af`; generation propagation and queue-contract coverage were completed at `f25b2a7`. Live database/storage/queue concurrency remains a qualification risk, and attempt-scoped publication and cleanup remain C-006/C-007 work.
 
 ### 4.4 Media processing and HLS packaging ✅ SHIPPED
 
-**Implementation completeness:** FULL with reliability gaps
-**Runtime state:** UNVERIFIED
+**Implementation completeness:** FULL for attempt ownership and bounded stale recovery; publication/deletion reliability remains open
+**Runtime state:** local evidence recorded; live/deployed runtime remains UNVERIFIED
 **Evidence strength:** E2
 **Confidence:** HIGH
 
@@ -260,7 +260,7 @@ draft → uploading → uploaded → queued → probing → processing → ready
 **Happy path:** worker marks job running/video probing, downloads original, probes metadata, marks processing, produces rendition playlists/segments/master/thumbnail, uploads processed objects, replaces rendition rows, marks video ready, and marks job succeeded.
 **Evidence:** `workers/media/media_worker/celery_app.py`, `packager.py`, `repository.py`, `storage.py`, `workers/media/tests/test_packager.py`.
 
-**Required changes:** attempt ownership/lease, compare-and-set transitions, bounded retry/recovery, attempt-specific output staging, cleanup on partial failure, and deletion fencing.
+**Resolution:** C-005 generation ownership, compare-and-set worker transitions, rollback-aware fencing, and bounded explicit stale recovery are complete through `0ca718e` and `6bb8064`. No automatic retry was added. Attempt-specific output staging, partial cleanup, deletion fencing, and segment binding remain C-006 through C-009 work.
 
 ### 4.5 Playback metadata and HLS proxy ✅ SHIPPED
 
@@ -367,7 +367,7 @@ Resource controls that are in scope:
 - Worker timeout via `ATLAS_FFMPEG_TIMEOUT_SECONDS`.
 - Page size cap of 100 for general video listing.
 - Admin list cap of 200.
-- Missing: telemetry write controls, storage lifecycle/cleanup, stale-job recovery limits, and explicit processing concurrency policy.
+- Bounded stale-job recovery is available through `ATLAS_PROCESSING_STALE_SECONDS` and an explicit operator command. Missing: telemetry write controls, storage lifecycle/cleanup, and live qualification of processing concurrency.
 
 ## 8. Trust, abuse, fraud, and moderation
 
@@ -390,7 +390,7 @@ Required hardening:
 - segment inventory binding;
 - deletion/reconciliation;
 - non-public storage identifiers;
-- worker attempt fencing.
+- live qualification of worker/recovery concurrency.
 
 ## 9. Planned changes
 
@@ -447,32 +447,25 @@ Compatibility:
 - tests must assert absence from normal responses;
 - playback must continue to use API-owned URLs.
 
-### C-004 — Make original upload idempotent and race-safe ⚠️ CHANGE
+### C-004 — Make original upload idempotent and race-safe ✅ RESOLVED
 
-**Current behavior:** `uploading` is accepted as an uploadable state and transition/storage/job side effects are not claimed atomically.
-**Target behavior:** only one request owns an upload generation; retries are either idempotent or return 409.
+**Current behavior:** an atomic compare-and-set claim moves only `draft` or `failed` videos to `uploading`, assigns `active_processing_generation`, and rejects concurrent losers before storage or queue side effects.
+**Resolution evidence:** `392f7af` implements the upload claim and one active generation; `f25b2a7` propagates the generation through the persisted job and queue payload.
 
-Required engineering:
+The remaining live qualification risk is concurrent behavior across a real database, object store, and queue. Attempt-scoped object publication and cleanup are deferred to C-006/C-007; this closeout does not claim those controls.
 
 - DB compare-and-set from `draft|failed` to `uploading`;
-- active-upload/idempotency token;
-- at most one active processing job per video;
-- cleanup/reconciliation when object write succeeds but queue dispatch fails;
-- concurrent-request integration test.
+- active processing generation and at most one active queued/running job per video;
+- concurrent-request coverage with public response redaction preserved.
 
-### C-005 — Add processing attempt ownership and stale-job recovery ⚠️ CHANGE
+### C-005 — Add processing attempt ownership and stale-job recovery ✅ RESOLVED
 
-**Current behavior:** late-ack Celery tasks update job/video state without conditional ownership.
-**Target behavior:** every transition requires the active attempt/lease token.
+**Current behavior:** every worker claim, stage update, and terminal update is fenced by job ID, video ID, generation, expected job status, and the video's active generation. Fence loss rolls back and leaves the newer state authoritative.
+**Resolution evidence:** generation schema/uniqueness at `9d83052`, upload-to-queue propagation at `f25b2a7`, worker fencing and rollback fixes through `0ca718e`, and bounded recovery at `6bb8064`.
 
-Required engineering:
+Recovery is dry-run by default through `make processing-recover-stale`; `ARGS="--apply"` is required to fail a matching stale job. It is conditional on matching generation/status/started_at, never retries automatically, and never enqueues a replacement job.
 
-- attempt/generation token;
-- compare-and-set claim;
-- lease expiry or stale timeout;
-- bounded retry policy;
-- stale job reaper/operator recovery;
-- stale completion must not overwrite a newer generation.
+- Live PostgreSQL concurrency, process-death timing, and deployed worker qualification remain open evidence risks.
 
 ### C-006 — Publish HLS atomically and clean partial generations ⚠️ CHANGE
 
@@ -534,13 +527,14 @@ Status: non-executable overview. Use `docs/plans/README.md` and its indexed plan
 
 ### Phase 2 — Upload and job idempotency
 
+**Status:** COMPLETE at `6bb8064`; use the canonical index for evidence and current sequencing.
 **Goal:** make upload and Celery redelivery safe.
 **Includes:** C-004 and C-005.
 **Dependencies:** Phase 1 response contracts only; schema migration planning.
-**Schema work:** attempt/idempotency/lease fields and active-job uniqueness strategy.
+**Schema work:** active processing generation, job generation, and active-job uniqueness are implemented.
 **Operational constraints:** no unbounded retries; safe recovery after process death.
 **Suggested allocation:** one API/database agent and one worker/queue agent with shared migration contract.
-**Exit gate:** concurrent upload and duplicate/redelivered task tests prove one authoritative generation.
+**Exit gate:** passed at `6bb8064` with concurrent upload, duplicate/redelivered task fencing, bounded recovery tests, `make test`, `make lint`, and alternate-port smoke evidence. Live/deployed qualification remains outside this closeout.
 
 ### Phase 3 — Atomic media publication and deletion
 
@@ -840,6 +834,7 @@ No full file count is asserted because the repository tree was inspected through
 - privacy check constraint.
 - lifecycle status check constraint.
 - original/master/thumbnail object keys.
+- nullable `active_processing_generation` UUID identifying the authoritative upload/processing generation.
 - probe metadata and failure fields.
 - owner/status/public-ready indexes.
 
@@ -850,8 +845,9 @@ No full file count is asserted because the repository tree was inspected through
 
 ### `video_processing_jobs`
 
-- status, attempt count, worker ID, timestamps, error fields.
-- no active-attempt uniqueness, lease, or generation token.
+- status, processing stage, attempt count, worker ID, timestamps, error fields, and non-null `generation` UUID.
+- partial unique index permits only one `queued` or `running` job per video.
+- Worker claim, stage, success, failure, and recovery updates require matching job/video/generation identity and expected state; this is generation fencing, not a lease/heartbeat service.
 
 ### `playback_events`
 
@@ -965,10 +961,10 @@ sequenceDiagram
     A->>D: insert private draft
     U->>W: POST /videos/{id}/upload
     W->>A: multipart file
-    A->>D: status=uploading
+    A->>D: status=uploading + active_processing_generation
     A->>O: put original
-    A->>D: status=uploaded + create queued job
-    A->>R: media_worker.process_video
+    A->>D: status=uploaded + create queued job with same generation
+    A->>R: media_worker.process_video(video_id, job_id, generation, original_storage_key)
     M->>D: running/probing
     M->>O: download original
     M->>M: ffprobe + FFmpeg package
@@ -1004,15 +1000,17 @@ Current job system:
 - Redis broker and Celery result backend.
 - default queue `media`.
 - late acknowledgements.
-- one message payload: `video_id`, `job_id`, `original_storage_key`.
+- one message payload: `video_id`, `job_id`, `generation`, `original_storage_key`.
 - durable SQL job status/attempt count.
-- no scheduler/reaper service.
+- no scheduler/reaper service; stale recovery is an explicit `make processing-recover-stale` operator command, dry-run by default.
 - no dead-letter queue.
 - no explicit Celery retry decorator.
 - no lease/heartbeat.
 - no cancellation state transition.
 - no persisted Celery task ID.
 - no storage reconciliation job.
+
+`ATLAS_PROCESSING_STALE_SECONDS` defaults to 900 seconds with a 60-second minimum. Apply mode requires `ARGS="--apply"`; recovery conditionally fails only a still-matching generation/status/`started_at` and never enqueues an automatic retry.
 
 The media path does continue without an interactive LLM/agent session. It depends on the worker process, Redis, database, storage, and media binaries.
 
@@ -1126,9 +1124,14 @@ Latest recorded result (2026-06-29):
 - lint passed.
 - end-to-end smoke passed.
 
-Current-head result: `UNVERIFIED` during this documentation-only run.
+Plan 2 closeout evidence at `6bb8064` (2026-08-24):
 
-Important missing tests correspond directly to C-001 through C-011: admin roles, unlisted discovery, contract redaction, concurrent upload, duplicate worker execution, partial object failure, deletion races, non-manifest segment, telemetry abuse/retention, and missing `azp`.
+- `make test`: 115 API tests, 14 worker tests, and 5 web tests passed.
+- `make lint`: Compose validation, API/worker `compileall`, and web build/lint passed.
+- `WEB_PORT=3002 WEB_SMOKE_URL=http://127.0.0.1:3002 make smoke`: passed API/web/worker health, Alembic upgrade, private-by-default and API-mediated/API-proxied contract checks, successful upload through processing to ready/HLS playback including master/rendition/segment/thumbnail, cross-user denial, and corrupt-media failure.
+- The default-port smoke attempt was blocked because unrelated `sandlabx-backend` owned `127.0.0.1:3001`; it is not a pass and that process was not stopped.
+
+Remaining evidence gaps correspond to C-001, C-006 through C-011 and live qualification: admin roles, partial object failure, deletion races, non-manifest segment, telemetry abuse/retention, missing `azp`, and live PostgreSQL worker/recovery concurrency. C-004/C-005 implementation tests are covered by the cited Plan 2 evidence; production and deployed-runtime evidence remain unverified.
 
 ## 28. Security and privacy
 
@@ -1152,7 +1155,7 @@ Material unresolved risks:
 - internal object keys exposed in normal responses;
 - anonymous telemetry unbounded;
 - segment authorization is pattern-based;
-- worker generation and deletion are unfenced;
+- worker generation fencing is implemented; live worker/recovery concurrency and deletion fencing remain unqualified;
 - media deletion does not remove object bytes;
 - partial failed HLS uploads are retained.
 
@@ -1183,8 +1186,8 @@ Observed conventions:
 | Admin endpoints accept any authenticated user | HIGH | Authorization | Global operations data exposed to creators | C-001 |
 | Unlisted appears in global listing | HIGH | Product privacy | Link-only content is discoverable | C-002 |
 | Storage keys/task IDs in normal responses | MEDIUM | Information boundary | Internal topology becomes API contract | C-003 |
-| Concurrent upload race | MEDIUM | Data integrity | Duplicate/overwriting side effects possible | C-004 |
-| Worker redelivery lacks attempt ownership | MEDIUM | Reliability | stale/duplicate task may finalize | C-005 |
+| Concurrent upload race | MEDIUM | Data integrity | Atomic generation claim and active-job uniqueness implemented; live multi-component concurrency remains unqualified | C-004 resolved at `392f7af`/`f25b2a7` |
+| Worker redelivery lacks attempt ownership | MEDIUM | Reliability | Generation-fenced transitions and explicit bounded stale recovery implemented; live process-death/concurrency qualification remains | C-005 resolved through `0ca718e`/`6bb8064` |
 | Partial HLS objects retained | MEDIUM | Storage | failed generation leaves artifacts | C-006 |
 | Delete removes DB only | MEDIUM | Privacy/retention | media bytes remain | C-007 |
 | Active worker not fenced by delete | MEDIUM | Race/privacy | media can be recreated | C-008 |
@@ -1216,6 +1219,18 @@ Changes:
 
 ---
 
+### 2026-08-24 — Plan 2 upload/job generation closeout
+
+Evidence SHA: `6bb8064`, atop generation-fencing commits through `0ca718e`.
+
+- C-004 upload ownership/idempotency is resolved at `392f7af` and `f25b2a7`.
+- C-005 generation-fenced worker ownership and bounded stale recovery are resolved through `0ca718e` and `6bb8064`.
+- `make test`, `make lint`, and alternate-port smoke evidence are recorded in Section 27 and `docs/plans/README.md`.
+- The default-port smoke attempt was blocked by unrelated `sandlabx-backend` on `127.0.0.1:3001`; it is not a pass. No merge, deployment, production, or Plan 3 completion is claimed.
+- Live PostgreSQL/process-death/worker concurrency remains unqualified. C-006 through C-010 remain Plan 3/4 work.
+
+---
+
 # Appendices
 
 ## Appendix A — Feature evidence matrix
@@ -1224,8 +1239,8 @@ Changes:
 |---|---|---|---|---|---|---|
 | Clerk identity | ✅ SHIPPED | FULL | UNVERIFIED | E2 | auth/deps/users | live Clerk session still requires runtime verification |
 | Video CRUD/privacy | ✅ SHIPPED | FULL | UNVERIFIED | E2 | video service/models | upload/job concurrency |
-| Upload/store/queue | ✅ SHIPPED | FULL | UNVERIFIED | E2 | uploads/storage/queue | concurrency/idempotency |
-| Probe/package HLS | ✅ SHIPPED | FULL | UNVERIFIED | E2 | worker packager | generation ownership |
+| Upload/store/queue | ✅ SHIPPED | FULL | local evidence at `6bb8064`; deployed UNVERIFIED | E2 | uploads/storage/queue | live concurrency; publication/deletion cleanup |
+| Probe/package HLS | ✅ SHIPPED | FULL | local evidence at `6bb8064`; deployed UNVERIFIED | E2 | worker packager | publication/deletion fencing and live concurrency |
 | API HLS playback | ✅ SHIPPED | FULL | UNVERIFIED | E2 | video route/storage | segment inventory |
 | Web library/upload/watch | ✅ SHIPPED | FULL | UNVERIFIED | E2 | Next.js app routes | manual refresh/runtime smoke evidence |
 | Playback events | ✅ SHIPPED | PARTIAL governance | UNVERIFIED | E2 | event route/watch client | rate/retention |
@@ -1263,6 +1278,7 @@ Changes:
 | `MINIO_BUCKET_PROCESSED` | optional default | API/worker | missing bucket/health failure | No |
 | `ATLAS_UPLOAD_MAX_BYTES` | optional default | API | upload limit | No |
 | `ATLAS_FFMPEG_TIMEOUT_SECONDS` | optional default | worker | processing timeout | No |
+| `ATLAS_PROCESSING_STALE_SECONDS` | optional, default 900, minimum 60 | API recovery command | dry-run threshold for explicit stale recovery | No |
 | `CLERK_PUBLISHABLE_KEY` | required for Clerk setup | web/API issuer inference | auth unavailable | Public |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | required by web | web | sign-in unavailable | Public |
 | `CLERK_SECRET_KEY` | environment-specific | Clerk integration | config failure | Yes |

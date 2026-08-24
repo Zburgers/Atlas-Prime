@@ -1,7 +1,7 @@
 # API and Database Contract
 
-Status: Sector B/F foundation plus Sector C upload path; contract-boundary hardening reconciled
-Last updated: 05-08-2026
+Status: Sector B/F foundation plus Sector C upload path; upload/job generation hardening reconciled
+Last updated: 24-08-2026
 
 ## Database Access
 
@@ -14,9 +14,9 @@ Last updated: 05-08-2026
 ## Domain Tables
 
 - `users` stores Clerk identity with `clerk_user_id`; no password fields exist.
-- `videos` stores owner, privacy, canonical lifecycle status, media metadata, storage keys, and failure fields.
+- `videos` stores owner, privacy, canonical lifecycle status, media metadata, storage keys, failure fields, and the nullable `active_processing_generation` UUID for the current upload/processing generation.
 - `video_renditions` stores one row per generated HLS rendition.
-- `video_processing_jobs` stores durable worker job attempts.
+- `video_processing_jobs` stores durable worker job attempts, each with a non-null `generation` UUID. A partial unique index permits at most one `queued` or `running` job per video.
 - `playback_events` is present for later player observability.
 
 ## Route Boundaries
@@ -51,5 +51,23 @@ The Next.js backend proxy forwards the caller's Clerk credentials and remains a 
 - FastAPI validates extension, content type, lightweight container header, empty file, and `ATLAS_UPLOAD_MAX_BYTES` before storing the original.
 - Supported original containers for the first upload path are `mp4`, `m4v`, `mov`, and `webm`.
 - Originals are stored in the private originals bucket using `originals/{video_id}/source.{ext}`.
-- A successful upload sets `videos.original_storage_key`, creates a `video_processing_jobs` row, transitions the video to `queued`, and enqueues Celery task `media_worker.process_video` with `video_id`, `job_id`, and `original_storage_key`.
+- A successful upload atomically claims `draft` or `failed` as `uploading`, assigns `videos.active_processing_generation`, stores `videos.original_storage_key`, creates a matching `video_processing_jobs.generation`, transitions the video to `queued`, and enqueues Celery task `media_worker.process_video`.
 - Invalid uploads transition the owned video to `failed` with a sanitized failure code/message. Cross-user uploads are rejected before storage.
+
+## Processing Generation and Queue Contract
+
+- `videos.active_processing_generation` is the authoritative generation for the current upload and processing attempt. The job row and queue message must carry the same UUID.
+- Upload claim and active-job uniqueness prevent concurrent upload requests from creating divergent active jobs. A stale or redelivered worker cannot claim, stage, succeed, or fail a different generation: worker updates are conditional on the matching `video_id`, `job_id`, `generation`, expected job status, and `videos.active_processing_generation`. Fence loss is a no-op with transaction rollback.
+- The exact Celery keyword payload is:
+
+  ```json
+  {
+    "video_id": "<video UUID>",
+    "job_id": "<processing job UUID>",
+    "generation": "<processing generation UUID>",
+    "original_storage_key": "originals/<video_id>/source.<ext>"
+  }
+  ```
+
+- Stale recovery is explicit and bounded. `ATLAS_PROCESSING_STALE_SECONDS` defaults to `900` seconds and has a minimum of `60`. `make processing-recover-stale` performs a dry run by default; use `ARGS="--apply"` for the explicit operator action.
+- Recovery considers only running jobs with an old `started_at`. Apply mode conditionally fails the matching job and video only when `video_id`, `generation`, running/status state, and the captured `started_at` still match. Stale recovery never retries automatically and never enqueues a replacement job.
