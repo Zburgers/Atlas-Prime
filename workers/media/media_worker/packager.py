@@ -54,6 +54,7 @@ class PackagedRendition:
 
 @dataclass(frozen=True)
 class PackageResult:
+    generation: str
     hls_root: Path
     master_storage_key: str
     thumbnail_storage_key: str
@@ -160,7 +161,9 @@ def rendition_plan_for(probe: MediaProbe) -> list[RenditionPlan]:
     ]
 
 
-def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: MediaProbe) -> PackageResult:
+def package_to_hls(
+    *, video_id: str, generation: str, source: Path, output_root: Path, probe: MediaProbe
+) -> PackageResult:
     hls_root = output_root / "hls"
     hls_root.mkdir(parents=True, exist_ok=True)
     plans = rendition_plan_for(probe)
@@ -237,7 +240,7 @@ def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: Med
                 video_codec="h264",
                 segment_count=segment_count,
                 output_size_bytes=output_size_bytes,
-                playlist_storage_key=f"processed/{video_id}/hls/{plan.label}/playlist.m3u8",
+                playlist_storage_key=f"processed/{video_id}/attempts/{generation}/hls/{plan.label}/playlist.m3u8",
             )
         )
 
@@ -247,10 +250,13 @@ def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: Med
         _run(["ffmpeg", "-y", "-ss", str(offset), "-i", str(source), "-frames:v", "1", "-q:v", "3", str(thumbnail_path)], timeout=30)
     _write_master_playlist(hls_root / "master.m3u8", renditions)
     return PackageResult(
+        generation=generation,
         hls_root=hls_root,
-        master_storage_key=f"processed/{video_id}/hls/master.m3u8",
-        thumbnail_storage_key=f"processed/{video_id}/hls/thumbnail.jpg",
-        generated_thumbnail_storage_keys=[f"processed/{video_id}/hls/{path.name}" for path in thumbnail_paths],
+        master_storage_key=f"processed/{video_id}/attempts/{generation}/hls/master.m3u8",
+        thumbnail_storage_key=f"processed/{video_id}/attempts/{generation}/hls/thumbnail.jpg",
+        generated_thumbnail_storage_keys=[
+            f"processed/{video_id}/attempts/{generation}/hls/{path.name}" for path in thumbnail_paths
+        ],
         renditions=renditions,
     )
 

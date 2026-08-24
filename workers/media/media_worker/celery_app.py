@@ -61,6 +61,7 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
 
             package_result = package_to_hls(
                 video_id=video_id,
+                generation=generation,
                 source=source_path,
                 output_root=work_dir / "processed",
                 probe=probe,
@@ -68,13 +69,17 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
             if not repository.mark_stage(video_id=video_id, job_id=job_id, generation=generation, stage="uploading"):
                 logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_generation", video_id, job_id)
                 return {"status": "skipped", "video_id": video_id, "job_id": job_id}
-            uploaded_keys = storage.upload_hls_tree(video_id=video_id, hls_root=package_result.hls_root)
+            uploaded_assets = storage.upload_hls_tree(
+                video_id=video_id,
+                generation=generation,
+                hls_root=package_result.hls_root,
+            )
             logger.info(
                 "sector=D stage=hls_upload_complete video_id=%s job_id=%s renditions=%s uploaded_objects=%s",
                 video_id,
                 job_id,
                 ",".join(rendition.label for rendition in package_result.renditions),
-                len(uploaded_keys),
+                len(uploaded_assets),
             )
             applied = repository.mark_succeeded(
                 video_id=video_id,
@@ -92,7 +97,7 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
                 "status": "ready",
                 "video_id": video_id,
                 "job_id": job_id,
-                "uploaded_objects": str(len(uploaded_keys)),
+                "uploaded_objects": str(len(uploaded_assets)),
             }
     except ProcessingError as exc:
         logger.warning(
@@ -101,7 +106,7 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
             job_id,
             exc.code,
         )
-        _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id)
+        _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id, generation=generation)
         applied = repository.mark_failed(
             video_id=video_id,
             job_id=job_id,
@@ -114,7 +119,7 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
         return {"status": "failed", "video_id": video_id, "job_id": job_id, "failure_code": exc.code}
     except Exception as exc:
         logger.exception("sector=D stage=processing_exception video_id=%s job_id=%s", video_id, job_id)
-        _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id)
+        _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id, generation=generation)
         applied = repository.mark_failed(
             video_id=video_id,
             job_id=job_id,
@@ -133,9 +138,20 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
         }
 
 
-def _cleanup_hls_tree(storage: ObjectStorage, *, video_id: str, job_id: str) -> None:
+def _cleanup_hls_tree(storage: ObjectStorage, *, video_id: str, job_id: str, generation: str) -> None:
     try:
-        deleted = storage.delete_hls_tree(video_id=video_id)
-        logger.info("sector=D stage=partial_hls_cleanup video_id=%s job_id=%s deleted_objects=%s", video_id, job_id, deleted)
+        deleted = storage.delete_hls_tree(video_id=video_id, generation=generation)
+        logger.info(
+            "sector=D stage=partial_hls_cleanup video_id=%s job_id=%s generation=%s deleted_objects=%s",
+            video_id,
+            job_id,
+            generation,
+            deleted,
+        )
     except Exception:
-        logger.exception("sector=D stage=partial_hls_cleanup_failed video_id=%s job_id=%s", video_id, job_id)
+        logger.exception(
+            "sector=D stage=partial_hls_cleanup_failed video_id=%s job_id=%s generation=%s",
+            video_id,
+            job_id,
+            generation,
+        )
