@@ -8,12 +8,23 @@ from media_worker.storage import UploadedHlsAsset
 
 
 class FakeCursor:
-    def __init__(self, *, rowcount: int = 1, fetched: dict[str, object] | None = None, has_fetched: bool = False) -> None:
+    def __init__(self, *, connection: "FakeConnection | None" = None, rowcount: int = 1, fetched: dict[str, object] | None = None, has_fetched: bool = False) -> None:
+        self.connection = connection
         self.rowcount = rowcount
         self.fetched = fetched if has_fetched else {"custom_thumbnail_exists": False}
 
+    def __enter__(self) -> "FakeCursor":
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
     def fetchone(self) -> dict[str, object] | None:
         return self.fetched
+
+    def executemany(self, query: str, params_seq: list[tuple[object, ...]]) -> None:
+        assert self.connection is not None
+        self.connection.calls.append((query, params_seq))
 
 
 class FakeConnection:
@@ -36,6 +47,7 @@ class FakeConnection:
         self.old_master_key = old_master_key
         self.rollbacks = 0
         self.commits = 0
+        self.cursor_calls = 0
 
     @contextmanager
     def transaction(self):
@@ -59,8 +71,9 @@ class FakeConnection:
         rowcount = self.rowcounts.pop(0) if self.rowcounts else self.updates
         return FakeCursor(rowcount=rowcount)
 
-    def executemany(self, query: str, params_seq: list[tuple[object, ...]]) -> None:
-        self.calls.append((query, params_seq))
+    def cursor(self) -> FakeCursor:
+        self.cursor_calls += 1
+        return FakeCursor(connection=self)
 
 
 def test_mark_started_claims_only_a_queued_job(monkeypatch) -> None:
@@ -222,6 +235,7 @@ def test_mark_succeeded_supports_the_configured_mapping_row_factory(monkeypatch)
 
     assert result.applied is True
     assert result.old_generation == "old-generation"
+    assert connection.cursor_calls == 3
     assert any("set status = 'ready'" in query for query, _ in connection.calls)
     assert any("set status = 'succeeded'" in query for query, _ in connection.calls)
     inventory_query, inventory_params = next(

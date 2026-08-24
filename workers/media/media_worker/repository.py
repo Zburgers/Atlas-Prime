@@ -165,7 +165,8 @@ class MediaRepository:
                     if claimed.rowcount != 1:
                         return PublicationResult(applied=False, reason="stale_or_deleted")
 
-                    conn.executemany(
+                    _executemany(
+                        conn,
                         """
                         insert into video_asset_inventory
                             (id, video_id, generation, relative_path, content_type, size_bytes, sha256, created_at)
@@ -190,7 +191,8 @@ class MediaRepository:
                         (video_id,),
                     ).fetchone()["custom_thumbnail_exists"]
                     conn.execute("delete from video_renditions where video_id = %s", (video_id,))
-                    conn.executemany(
+                    _executemany(
+                        conn,
                         "insert into video_renditions (id, video_id, label, width, height, target_bitrate, video_codec, segment_count, output_size_bytes, playlist_storage_key, status, created_at) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ready', now())",
                         [
                             (
@@ -210,7 +212,8 @@ class MediaRepository:
                     )
                     conn.execute("delete from video_thumbnails where video_id = %s and source = 'generated'", (video_id,))
                     asset_by_key = {asset.storage_key: asset for asset in uploaded_assets}
-                    conn.executemany(
+                    _executemany(
+                        conn,
                         "insert into video_thumbnails (id, video_id, storage_key, source, content_type, width, height, selected, created_at) values (%s, %s, %s, 'generated', %s, 640, 360, %s, now())",
                         [
                             (
@@ -270,6 +273,15 @@ class MediaRepository:
 
     def _connect(self) -> psycopg.Connection:
         return psycopg.connect(self._database_url, row_factory=dict_row)
+
+
+def _executemany(
+    conn: psycopg.Connection,
+    query: str,
+    params_seq: list[tuple[object, ...]],
+) -> None:
+    with conn.cursor() as cursor:
+        cursor.executemany(query, params_seq)
 
 
 def _validate_manifest(
