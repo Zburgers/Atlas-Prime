@@ -53,3 +53,39 @@ test("watch page presents user-safe processing guidance", () => {
   assert.match(statusUi, /const failureMessage = processingStatus\?\.failure_message \|\| video\.failure_message/);
   assert.match(statusUi, /failureMessage \? <p className="errorText">\{failureMessage\}<\/p>/);
 });
+
+test("watch telemetry carries stable session and retry-safe event identities", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const api = fs.readFileSync(path.join(__dirname, "../app/components/video-api.ts"), "utf8");
+  const watch = fs.readFileSync(path.join(__dirname, "../app/watch/[videoId]/watch-client.tsx"), "utf8");
+
+  assert.match(api, /export function createPlaybackTelemetryUuid\(\)/);
+  assert.match(api, /cryptoApi\.randomUUID\(\)/);
+  assert.match(api, /bytes\[6\] = .*0x40/);
+  assert.match(api, /bytes\[8\] = .*0x80/);
+  assert.match(api, /export function buildPlaybackEventRequest\(/);
+  assert.match(watch, /useMemo\(\(\) => \{\s+\/\/ The route key intentionally starts a new telemetry session for a new video\.\s+void videoId;\s+return createPlaybackTelemetryUuid\(\);\s+\}, \[videoId\]\)/);
+  assert.match(watch, /const event_id = createPlaybackTelemetryUuid\(\)/);
+  assert.match(watch, /playback_session_id: playbackSessionId/);
+  assert.match(watch, /event_id \}/);
+  assert.match(watch, /body,\n\s+\}\);/);
+  assert.match(watch, /for \(let attempt = 0; attempt < MAX_TELEMETRY_ATTEMPTS;/);
+  assert.match(watch, /request_id: recommendationRequestId \?\? null/);
+  assert.match(watch, /session_id: viewSessionIdRef\.current/);
+  assert.doesNotMatch(watch, /\bsession_id:\s*playbackSessionId/);
+});
+
+test("home-feed card clicks carry the required telemetry identity", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "../app/components/video-list.tsx"), "utf8");
+
+  assert.match(source, /buildPlaybackEventRequest,\n\s+createPlaybackTelemetryUuid,/);
+  assert.match(source, /useState\(\(\) => createPlaybackTelemetryUuid\(\)\)/);
+  assert.match(source, /const eventId = createPlaybackTelemetryUuid\(\)/);
+  assert.match(source, /playback_session_id: telemetryPlaybackSessionId/);
+  assert.match(source, /event_id: eventId/);
+  assert.match(source, /event_type: "card_click", request_id: requestId/);
+  assert.match(source, /onClick=\{\(\) => void recordClick\(\)\}/);
+});

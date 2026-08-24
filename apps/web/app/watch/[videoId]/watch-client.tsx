@@ -4,12 +4,14 @@ import { useAuth } from "@clerk/nextjs";
 import Hls from "hls.js";
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusPanel } from "../../components/status-ui";
 import {
   ApiError,
   apiRequest,
   backendAssetUrl,
+  buildPlaybackEventRequest,
+  createPlaybackTelemetryUuid,
   type Comment,
   type CommentListResponse,
   type FeedResponse,
@@ -22,6 +24,7 @@ import {
 
 const VIEW_COUNT_THRESHOLD_SECONDS = 5;
 const PROGRESS_PING_INTERVAL_SECONDS = 15;
+const MAX_TELEMETRY_ATTEMPTS = 2;
 
 function playbackStatusGuidance(status: ProcessingStatus["video_status"] | Video["status"] | null | undefined) {
   switch (status) {
@@ -42,6 +45,11 @@ function playbackStatusGuidance(status: ProcessingStatus["video_status"] | Video
 export function WatchClient({ videoId, recommendationRequestId }: { videoId: string; recommendationRequestId?: string }) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playbackSessionId = useMemo(() => {
+    // The route key intentionally starts a new telemetry session for a new video.
+    void videoId;
+    return createPlaybackTelemetryUuid();
+  }, [videoId]);
   const viewSessionIdRef = useRef(createPlaybackSessionId());
   const viewRecordedRef = useRef(false);
   const viewRequestPendingRef = useRef(false);
@@ -65,24 +73,39 @@ export function WatchClient({ videoId, recommendationRequestId }: { videoId: str
 
   const recordPlaybackEvent = useCallback(
     async (event_type: "player_ready" | "error" | "unsupported" | "play" | "pause" | "seek" | "progress_ping" | "buffer_start" | "buffer_end" | "ended" | "quality_change", quality_label?: string) => {
+      const event_id = createPlaybackTelemetryUuid();
       try {
         const token = isSignedIn ? await getToken() : null;
-        await apiRequest(`/videos/${videoId}/events`, {
-          token,
-          method: "POST",
-          body: {
+        const body = buildPlaybackEventRequest(
+          { playback_session_id: playbackSessionId, event_id },
+          {
             event_type,
             position_seconds: videoRef.current?.currentTime ?? null,
             quality_label,
             client_timestamp: new Date().toISOString(),
             request_id: recommendationRequestId ?? null,
           },
-        });
+        );
+
+        for (let attempt = 0; attempt < MAX_TELEMETRY_ATTEMPTS; attempt += 1) {
+          try {
+            await apiRequest(`/videos/${videoId}/events`, {
+              token,
+              method: "POST",
+              body,
+            });
+            return;
+          } catch (error) {
+            if (attempt + 1 >= MAX_TELEMETRY_ATTEMPTS || !shouldRetryPlaybackTelemetry(error)) {
+              return;
+            }
+          }
+        }
       } catch {
         // Playback telemetry should never interrupt viewing.
       }
     },
-    [getToken, isSignedIn, recommendationRequestId, videoId],
+    [getToken, isSignedIn, playbackSessionId, recommendationRequestId, videoId],
   );
 
   const recordView = useCallback(async () => {
@@ -524,6 +547,13 @@ function createPlaybackSessionId() {
       ? globalThis.crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `watch-${randomId}`;
+}
+
+function shouldRetryPlaybackTelemetry(error: unknown) {
+  if (!(error instanceof ApiError)) {
+    return true;
+  }
+  return error.status === 408 || error.status === 429 || error.status >= 500;
 }
 
 function formatViewCount(value: number) {

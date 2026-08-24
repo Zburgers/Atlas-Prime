@@ -8,6 +8,8 @@ import {
   ApiError,
   apiRequest,
   backendAssetUrl,
+  buildPlaybackEventRequest,
+  createPlaybackTelemetryUuid,
   type FeedItem,
   type FeedResponse,
   type VideoImpression,
@@ -127,11 +129,24 @@ export function VideoCard({
 }) {
   const cardRef = useRef<HTMLElement | null>(null);
   const impressionRecordedRef = useRef(false);
+  const [telemetryPlaybackSessionId] = useState(() => createPlaybackTelemetryUuid());
   const channelLabel = video.channel_display_name ?? "Channel pending";
   const watchHref = requestId ? `/watch/${video.id}?request_id=${encodeURIComponent(requestId)}` : `/watch/${video.id}`;
   const recordClick = async () => {
     if (!requestId || !surface) return;
-    try { await apiRequest(`/videos/${video.id}/events`, { token: getToken ? await getToken() : null, method: "POST", body: { event_type: "card_click", request_id: requestId } }); } catch { /* Telemetry must not block navigation. */ }
+    const eventId = createPlaybackTelemetryUuid();
+    try {
+      await apiRequest(`/videos/${video.id}/events`, {
+        token: getToken ? await getToken() : null,
+        method: "POST",
+        body: buildPlaybackEventRequest(
+          { playback_session_id: telemetryPlaybackSessionId, event_id: eventId },
+          { event_type: "card_click", request_id: requestId },
+        ),
+      });
+    } catch {
+      // Card-click telemetry must not block navigation.
+    }
   };
 
   useEffect(() => {
