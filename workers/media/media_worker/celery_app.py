@@ -81,7 +81,7 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
                 ",".join(rendition.label for rendition in package_result.renditions),
                 len(uploaded_assets),
             )
-            applied = repository.mark_succeeded(
+            publication = repository.mark_succeeded(
                 video_id=video_id,
                 job_id=job_id,
                 generation=generation,
@@ -89,10 +89,32 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
                 thumbnail_key=package_result.thumbnail_storage_key,
                 generated_thumbnail_keys=package_result.generated_thumbnail_storage_keys,
                 renditions=package_result.renditions,
+                uploaded_assets=uploaded_assets,
             )
-            if not applied:
-                logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_terminal", video_id, job_id)
+            if not publication.applied:
+                logger.info(
+                    "sector=D stage=processing_skipped video_id=%s job_id=%s generation=%s reason=%s",
+                    video_id,
+                    job_id,
+                    generation,
+                    publication.reason or "stale_terminal",
+                )
+                _cleanup_hls_tree(
+                    storage,
+                    video_id=video_id,
+                    job_id=job_id,
+                    generation=generation,
+                    stage="stale_attempt_cleanup",
+                )
                 return {"status": "skipped", "video_id": video_id, "job_id": job_id}
+            if publication.old_generation and publication.old_generation != generation:
+                _cleanup_hls_tree(
+                    storage,
+                    video_id=video_id,
+                    job_id=job_id,
+                    generation=publication.old_generation,
+                    stage="prior_attempt_cleanup",
+                )
             return {
                 "status": "ready",
                 "video_id": video_id,
@@ -138,11 +160,19 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
         }
 
 
-def _cleanup_hls_tree(storage: ObjectStorage, *, video_id: str, job_id: str, generation: str) -> None:
+def _cleanup_hls_tree(
+    storage: ObjectStorage,
+    *,
+    video_id: str,
+    job_id: str,
+    generation: str,
+    stage: str = "partial_hls_cleanup",
+) -> None:
     try:
         deleted = storage.delete_hls_tree(video_id=video_id, generation=generation)
         logger.info(
-            "sector=D stage=partial_hls_cleanup video_id=%s job_id=%s generation=%s deleted_objects=%s",
+            "sector=D stage=%s video_id=%s job_id=%s generation=%s deleted_objects=%s",
+            stage,
             video_id,
             job_id,
             generation,
@@ -150,7 +180,8 @@ def _cleanup_hls_tree(storage: ObjectStorage, *, video_id: str, job_id: str, gen
         )
     except Exception:
         logger.exception(
-            "sector=D stage=partial_hls_cleanup_failed video_id=%s job_id=%s generation=%s",
+            "sector=D stage=%s_failed video_id=%s job_id=%s generation=%s",
+            stage,
             video_id,
             job_id,
             generation,
