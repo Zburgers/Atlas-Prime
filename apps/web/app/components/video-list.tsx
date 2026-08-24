@@ -131,6 +131,10 @@ export function VideoCard({
   const impressionRecordedRef = useRef(false);
   const [telemetryPlaybackSessionId] = useState(() => createPlaybackTelemetryUuid());
   const channelLabel = video.channel_display_name ?? "Channel pending";
+  const durationLabel = video.duration_seconds ? formatDuration(video.duration_seconds) : "";
+  const thumbnailAccessibleName = durationLabel
+    ? `Open ${video.title}, duration ${durationLabel}`
+    : `Open ${video.title}`;
   const watchHref = requestId ? `/watch/${video.id}?request_id=${encodeURIComponent(requestId)}` : `/watch/${video.id}`;
   const recordClick = async () => {
     if (!requestId || !surface) return;
@@ -195,7 +199,7 @@ export function VideoCard({
 
   return (
     <article className="videoCard" role="listitem" ref={cardRef}>
-      <Link className="thumbnailFrame" href={watchHref} aria-label={`Open ${video.title}`} onClick={() => void recordClick()}>
+      <Link className="thumbnailFrame" href={watchHref} aria-label={thumbnailAccessibleName} onClick={() => void recordClick()}>
         {video.thumbnail_url ? (
           <Image
             alt=""
@@ -209,7 +213,7 @@ export function VideoCard({
             <StatusPill status={video.status} />
           </div>
         )}
-        {video.duration_seconds ? <span className="durationBadge">{formatDuration(video.duration_seconds)}</span> : null}
+        {video.duration_seconds ? <span className="durationBadge">{durationLabel}</span> : null}
       </Link>
       <div className="videoCardBody">
         <div>

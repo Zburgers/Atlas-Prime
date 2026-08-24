@@ -90,6 +90,17 @@ test("home-feed card clicks carry the required telemetry identity", () => {
   assert.match(source, /onClick=\{\(\) => void recordClick\(\)\}/);
 });
 
+test("thumbnail accessible names include visible duration badges", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "../app/components/video-list.tsx"), "utf8");
+
+  assert.match(source, /const durationLabel = video\.duration_seconds \? formatDuration\(video\.duration_seconds\) : ""/);
+  assert.match(source, /const thumbnailAccessibleName = durationLabel\s+\? `Open \$\{video\.title\}, duration \$\{durationLabel\}`/);
+  assert.match(source, /aria-label=\{thumbnailAccessibleName\}/);
+  assert.match(source, /className="durationBadge">\{durationLabel\}/);
+});
+
 test("admin telemetry health stays aggregate-only and degrades safely", () => {
   const fs = require("node:fs");
   const path = require("node:path");
