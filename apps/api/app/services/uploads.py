@@ -140,7 +140,6 @@ async def _queue_uploaded_video(
         processing_queue,
         generation=video.active_processing_generation,
     )
-    await session.refresh(video)
     return QueuedVideoResult(video=video, processing_job=queued.job, celery_task_id=queued.task_id)
 
 
