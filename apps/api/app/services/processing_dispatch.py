@@ -7,7 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import selectinload
 
 from app.db.models import ProcessingDispatch, Video, VideoProcessingJob
 from app.domain.status import JobStatus, VideoStatus, validate_video_transition
@@ -55,7 +55,7 @@ async def publish_pending_processing_job(
 ) -> str:
     result = await session.execute(
         select(ProcessingDispatch)
-        .options(joinedload(ProcessingDispatch.job).joinedload(VideoProcessingJob.video))
+        .options(selectinload(ProcessingDispatch.job).selectinload(VideoProcessingJob.video))
         .where(ProcessingDispatch.job_id == job_id, ProcessingDispatch.status == "pending")
         .with_for_update()
     )
