@@ -15,6 +15,7 @@ from app.core.config import upload_max_bytes
 from app.db.models import User, Video, VideoProcessingJob
 from app.domain.status import JobStatus, VideoStatus, validate_video_transition
 from app.services import videos as video_service
+from app.services.processing_dispatch import ProcessingPublicationError, queue_processing_job
 from app.services.processing_queue import ProcessingQueue
 from app.services.storage import OriginalStorage
 
@@ -88,6 +89,11 @@ async def upload_original_and_queue_processing(
             content_type=content_type,
             celery_task_id=result.celery_task_id,
         )
+    except ProcessingPublicationError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Processing is queued and will be retried"},
+        ) from None
     except HTTPException as exc:
         await _mark_video_failed(
             session,
@@ -126,41 +132,16 @@ async def _queue_uploaded_video(
     video: Video,
     processing_queue: ProcessingQueue,
 ) -> QueuedVideoResult:
-    if not video.original_storage_key:
-        raise RuntimeError("uploaded video is missing original storage key")
-    validate_video_transition(VideoStatus(video.status), VideoStatus.QUEUED)
-    job = VideoProcessingJob(
-        video_id=video.id,
-        generation=video.active_processing_generation,
-        status=JobStatus.QUEUED.value,
-    )
     if video.active_processing_generation is None:
         raise RuntimeError("queued upload is missing processing generation")
-    video.status = VideoStatus.QUEUED.value
-    session.add(job)
-    await session.flush()
-    try:
-        celery_task_id = processing_queue.enqueue_video_processing(
-            video_id=video.id,
-            job_id=job.id,
-            generation=job.generation,
-            original_storage_key=video.original_storage_key,
-        )
-    except Exception:
-        await session.rollback()
-        await session.refresh(video)
-        await _mark_video_failed(
-            session,
-            video,
-            "UPLOAD_ENQUEUE_FAILED",
-            "Upload stored but processing could not be queued",
-            generation=video.active_processing_generation,
-        )
-        raise
-    await session.commit()
+    queued = await queue_processing_job(
+        session,
+        video,
+        processing_queue,
+        generation=video.active_processing_generation,
+    )
     await session.refresh(video)
-    await session.refresh(job)
-    return QueuedVideoResult(video=video, processing_job=job, celery_task_id=celery_task_id)
+    return QueuedVideoResult(video=video, processing_job=queued.job, celery_task_id=queued.task_id)
 
 
 async def _claim_upload(session: AsyncSession, video: Video) -> Video:

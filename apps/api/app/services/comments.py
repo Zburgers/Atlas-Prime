@@ -71,10 +71,7 @@ async def delete_comment(session: AsyncSession, user: User, comment_id: UUID) ->
 
 
 def _comment_response(comment: VideoComment, current_user: User | None) -> CommentResponse:
-    author = comment.user
-    author_display_name = "Deleted user"
-    if author is not None:
-        author_display_name = author.email or "Atlas viewer"
+    author_display_name = "Deleted user" if comment.user is None else "Atlas viewer"
     return CommentResponse(
         id=comment.id,
         video_id=comment.video_id,

@@ -182,9 +182,14 @@ def test_impression_event_records_surface_position_and_request_id(client: TestCl
         f"/videos/{video['id']}/impressions",
         json={"surface": "home", "position": 2, "request_id": "feed-123"},
     )
+    duplicate = client.post(
+        f"/videos/{video['id']}/impressions",
+        json={"surface": "home", "position": 2, "request_id": "feed-123"},
+    )
     list_response = client.get("/videos")
 
     assert response.status_code == 201
+    assert duplicate.status_code == 200
     body = response.json()
     assert body["video_id"] == video["id"]
     assert body["surface"] == "home"
@@ -348,13 +353,14 @@ def test_playback_event_admission_boundary_rejects_121st_event_without_a_row(
     responses = [
         client.post(
             f"/videos/{video['id']}/events",
-            json={"playback_session_id": playback_session_id, "event_id": str(uuid4()), "event_type": "player_ready"},
+            json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "player_ready"},
         )
         for _ in range(121)
     ]
 
     assert all(response.status_code == 201 for response in responses[:120])
     assert responses[120].status_code == 429
+    assert telemetry_admission.SESSION_COOKIE_NAME in responses[0].headers["set-cookie"]
     assert responses[120].json() == {"detail": {"error": "RateLimited", "message": "Playback telemetry rate limit exceeded"}}
     assert sum(fake_telemetry_redis.counters.values()) == 121
     assert fake_telemetry_metrics.counters["atlas:telemetry:metrics:v1:accepted"] == 120
@@ -378,11 +384,19 @@ def test_admission_keys_separate_video_and_authenticated_anonymous_scopes(
     video_a = uuid4()
     video_b = uuid4()
 
-    async def admit(video_id: UUID, user_id: UUID | None, session_id: UUID) -> None:
+    anonymous_session_token = telemetry_admission.issue_session_token(now=int(fixed_now.timestamp()))
+
+    async def admit(
+        video_id: UUID,
+        user_id: UUID | None,
+        session_id: UUID,
+        session_token: str | None = None,
+    ) -> None:
         await telemetry_admission.admit_playback_event(
             video_id=video_id,
             user_id=user_id,
             playback_session_id=session_id,
+            anonymous_session_token=session_token,
             now=fixed_now,
         )
 
@@ -391,8 +405,8 @@ def test_admission_keys_separate_video_and_authenticated_anonymous_scopes(
     asyncio.run(admit(video_a, authenticated_a, uuid4()))
     asyncio.run(admit(video_a, authenticated_b, uuid4()))
     asyncio.run(admit(video_b, authenticated_a, uuid4()))
-    asyncio.run(admit(video_a, None, uuid4()))
-    asyncio.run(admit(video_a, None, uuid4()))
+    asyncio.run(admit(video_a, None, uuid4(), anonymous_session_token))
+    asyncio.run(admit(video_a, None, uuid4(), telemetry_admission.issue_session_token(now=int(fixed_now.timestamp()))))
 
     assert len(fake_telemetry_redis.counters) == 5
     assert all(key.startswith("atlas:telemetry:admission:v1:") for key in fake_telemetry_redis.counters)

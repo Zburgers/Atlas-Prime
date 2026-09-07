@@ -194,10 +194,17 @@ class ProcessingJobResponse(BaseModel):
     created_at: datetime
 
 
+class ProcessingStatusJobResponse(BaseModel):
+    id: UUID
+    video_id: UUID
+    status: JobStatus
+    stage: ProcessingStage
+
+
 class ProcessingStatusResponse(BaseModel):
     video_id: UUID
     video_status: VideoStatus
-    latest_job: ProcessingJobResponse | None
+    latest_job: ProcessingStatusJobResponse | None
     failure_code: str | None
     failure_message: str | None
 

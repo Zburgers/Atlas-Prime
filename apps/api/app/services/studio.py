@@ -12,6 +12,7 @@ from app.db.models import User, Video, VideoProcessingJob
 from app.domain.status import JobStatus, VideoPrivacy, VideoStatus, validate_video_transition
 from app.schemas.studio import StudioVideoUpdate
 from app.services import videos as video_service
+from app.services.processing_dispatch import ProcessingPublicationError, queue_processing_job
 from app.services.processing_queue import ProcessingQueue
 
 logger = logging.getLogger(__name__)
@@ -95,28 +96,12 @@ async def retry_failed_video(
 
     validate_video_transition(VideoStatus(video.status), VideoStatus.QUEUED)
     generation = uuid4()
-    job = VideoProcessingJob(video_id=video.id, generation=generation, status=JobStatus.QUEUED.value)
-    video.active_processing_generation = generation
-    video.status = VideoStatus.QUEUED.value
-    video.failure_code = None
-    video.failure_message = None
-    session.add(job)
-    await session.flush()
     try:
-        processing_queue.enqueue_video_processing(
-            video_id=video.id,
-            job_id=job.id,
-            generation=job.generation,
-            original_storage_key=video.original_storage_key,
-        )
-    except Exception as exc:
-        await session.rollback()
+        queued = await queue_processing_job(session, video, processing_queue, generation=generation)
+    except ProcessingPublicationError as exc:
         logger.exception("sector=A/B stage=studio_retry_enqueue_failed video_id=%s", video.id)
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"error": "RetryFailed", "message": "Processing retry could not be queued"},
-        ) from exc
-
-    await session.commit()
-    await session.refresh(job)
-    return job
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Processing is queued and will be retried"},
+        ) from None
+    return queued.job

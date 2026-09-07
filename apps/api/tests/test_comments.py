@@ -101,12 +101,13 @@ def test_public_users_can_read_comments_on_public_video(client: TestClient) -> N
 
     assert created.status_code == 201
     assert created.json()["body"] == "First comment"
-    assert created.json()["author_display_name"] == "viewer@example.com"
+    assert created.json()["author_display_name"] == "Atlas viewer"
+    assert "viewer@example.com" not in created.text
     assert created.json()["owned_by_current_user"] is True
     assert response.status_code == 200
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["body"] == "First comment"
-    assert response.json()["items"][0]["author_display_name"] == "viewer@example.com"
+    assert response.json()["items"][0]["author_display_name"] == "Atlas viewer"
     assert response.json()["items"][0]["owned_by_current_user"] is False
 
 

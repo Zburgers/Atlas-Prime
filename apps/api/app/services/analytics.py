@@ -6,8 +6,11 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import Response, status
-from sqlalchemy import delete, func, select
+import hashlib
+from fastapi import HTTPException, Response, status
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import CreatorDailyMetric, User, Video, VideoDailyMetric, VideoImpression, VideoView
@@ -15,6 +18,7 @@ from app.domain.events import VIEW_COUNT_THRESHOLD_SECONDS
 from app.schemas.analytics import AnalyticsDailyPoint, AnalyticsTopVideo, AnalyticsTotals, StudioAnalyticsResponse
 from app.schemas.videos import VideoImpressionCreate, VideoViewCreate, VideoViewResponse
 from app.services import videos as video_service
+from app.services import telemetry_admission
 
 
 @dataclass(frozen=True)
@@ -30,18 +34,47 @@ async def record_impression(
     user: User | None,
     video_id: UUID,
     payload: VideoImpressionCreate,
+    response: Response,
+    anonymous_session_token: str | None,
 ) -> VideoImpression:
     video = await video_service.get_video_for_read(session, user, video_id)
-    impression = VideoImpression(
-        user_id=getattr(user, "id", None),
+    dedupe_key = _dedupe_key(
         video_id=video.id,
+        user_id=getattr(user, "id", None),
+        anonymous_session_token=anonymous_session_token,
         surface=payload.surface,
         position=payload.position,
         request_id=payload.request_id,
     )
-    video.impression_count += 1
-    session.add(impression)
+    existing = await session.scalar(select(VideoImpression).where(VideoImpression.dedupe_key == dedupe_key))
+    if existing is not None:
+        response.status_code = status.HTTP_200_OK
+        return existing
+    await _admit(session, video.id, user, anonymous_session_token, payload.request_id)
+    result = await session.execute(
+        _insert_ignore(
+            session,
+            VideoImpression,
+            {
+                "user_id": getattr(user, "id", None),
+                "video_id": video.id,
+                "surface": payload.surface,
+                "position": payload.position,
+                "request_id": payload.request_id,
+                "dedupe_key": dedupe_key,
+            },
+            ("dedupe_key",),
+        )
+    )
+    if not result.rowcount:
+        existing = await session.scalar(select(VideoImpression).where(VideoImpression.dedupe_key == dedupe_key))
+        response.status_code = status.HTTP_200_OK
+        return existing
+    await session.execute(update(Video).where(Video.id == video.id).values(impression_count=Video.impression_count + 1))
     await session.commit()
+    await session.refresh(video)
+    impression = await session.scalar(select(VideoImpression).where(VideoImpression.dedupe_key == dedupe_key))
+    response.status_code = status.HTTP_201_CREATED
     await session.refresh(impression)
     return impression
 
@@ -52,6 +85,7 @@ async def record_view(
     video_id: UUID,
     payload: VideoViewCreate,
     response: Response,
+    anonymous_session_token: str | None,
 ) -> VideoViewResponse:
     video = await video_service.get_video_for_read(session, user, video_id)
     if payload.position_seconds < VIEW_COUNT_THRESHOLD_SECONDS:
@@ -63,11 +97,8 @@ async def record_view(
             threshold_seconds=VIEW_COUNT_THRESHOLD_SECONDS,
         )
 
-    existing = await session.scalar(
-        select(VideoView)
-        .where(VideoView.video_id == video.id, VideoView.session_id == payload.session_id)
-        .limit(1)
-    )
+    session_id = payload.session_id if user is not None else _anonymous_view_session(anonymous_session_token)
+    existing = await session.scalar(select(VideoView).where(VideoView.video_id == video.id, VideoView.session_id == session_id).limit(1))
     if existing is not None:
         response.status_code = status.HTTP_200_OK
         return VideoViewResponse(
@@ -77,16 +108,28 @@ async def record_view(
             threshold_seconds=VIEW_COUNT_THRESHOLD_SECONDS,
         )
 
-    view = VideoView(
-        user_id=getattr(user, "id", None),
-        video_id=video.id,
-        session_id=payload.session_id,
-        position_seconds=payload.position_seconds,
-        request_id=payload.request_id,
+    await _admit(session, video.id, user, anonymous_session_token, payload.request_id)
+    result = await session.execute(
+        _insert_ignore(
+            session,
+            VideoView,
+            {
+                "user_id": getattr(user, "id", None),
+                "video_id": video.id,
+                "session_id": session_id,
+                "position_seconds": payload.position_seconds,
+                "request_id": payload.request_id,
+            },
+            ("video_id", "session_id"),
+        )
     )
-    video.view_count += 1
-    session.add(view)
+    if not result.rowcount:
+        response.status_code = status.HTTP_200_OK
+        await session.refresh(video)
+        return VideoViewResponse(video_id=video.id, counted=False, view_count=video.view_count, threshold_seconds=VIEW_COUNT_THRESHOLD_SECONDS)
+    await session.execute(update(Video).where(Video.id == video.id).values(view_count=Video.view_count + 1))
     await session.commit()
+    await session.refresh(video)
     response.status_code = status.HTTP_201_CREATED
     return VideoViewResponse(
         video_id=video.id,
@@ -94,6 +137,46 @@ async def record_view(
         view_count=video.view_count,
         threshold_seconds=VIEW_COUNT_THRESHOLD_SECONDS,
     )
+
+
+async def _admit(
+    session: AsyncSession,
+    video_id: UUID,
+    user: User | None,
+    anonymous_session_token: str | None,
+    request_id: str | None,
+) -> None:
+    del session, request_id
+    try:
+        await telemetry_admission.admit_playback_event(
+            video_id=video_id,
+            user_id=getattr(user, "id", None),
+            playback_session_id=UUID("00000000-0000-0000-0000-000000000000"),
+            anonymous_session_token=anonymous_session_token,
+        )
+    except telemetry_admission.TelemetryAdmissionLimitExceeded:
+        raise HTTPException(status_code=429, detail={"error": "RateLimited", "message": "Telemetry rate limit exceeded"}) from None
+    except telemetry_admission.TelemetryAdmissionUnavailable:
+        raise HTTPException(status_code=503, detail={"error": "ServiceUnavailable", "message": "Telemetry is temporarily unavailable"}) from None
+
+
+def _anonymous_view_session(token: str | None) -> str:
+    if not token:
+        raise HTTPException(status_code=503, detail={"error": "ServiceUnavailable", "message": "Telemetry session is unavailable"})
+    return f"anonymous:{hashlib.sha256(token.encode()).hexdigest()}"
+
+
+def _dedupe_key(*, video_id: UUID, user_id: UUID | None, anonymous_session_token: str | None, surface: str, position: int, request_id: str | None) -> str:
+    identity = f"user:{user_id}" if user_id is not None else f"session:{hashlib.sha256((anonymous_session_token or '').encode()).hexdigest()}"
+    value = f"{video_id}:{identity}:{surface}:{position}:{request_id or ''}"
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _insert_ignore(session: AsyncSession, model: type[VideoImpression] | type[VideoView], values: dict[str, object], conflict_columns: tuple[str, ...]):
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        return postgres_insert(model).values(**values).on_conflict_do_nothing(index_elements=list(conflict_columns))
+    return sqlite_insert(model).values(**values).on_conflict_do_nothing(index_elements=list(conflict_columns))
 
 
 async def rebuild_daily_metrics(

@@ -20,6 +20,7 @@ from app.db.models import (
     PlaybackEvent,
     Playlist,
     PlaylistItem,
+    ProcessingDispatch,
     RecommendationRequest,
     RecommendationResult,
     User,

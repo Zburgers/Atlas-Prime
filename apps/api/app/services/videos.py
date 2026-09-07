@@ -4,7 +4,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select, update
@@ -13,10 +13,13 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import User, Video, VideoProcessingJob
 from app.db.session import SessionLocal
-from app.domain.status import DeletionStatus, JobStatus, ModerationStatus, ProcessingStage, VideoPrivacy, VideoStatus, validate_video_transition
-from app.schemas.videos import ProcessingStatusResponse, VideoCreate, VideoUpdate
+from app.domain.status import DeletionStatus, JobStatus, ModerationStatus, ProcessingStage, VideoStatus, validate_video_transition
+from app.schemas.videos import ProcessingStatusJobResponse, ProcessingStatusResponse, VideoCreate, VideoUpdate
 from app.services.channels import ensure_default_channel
+from app.services.processing_dispatch import queue_processing_job
+from app.services.processing_queue import ProcessingQueue
 from app.services.storage import OriginalStorage, ProcessedHlsStorage
+from app.domain.visibility import discoverable_video, is_direct_link_readable_video
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +55,7 @@ async def create_video(session: AsyncSession, owner: User, payload: VideoCreate)
 
 
 async def list_visible_videos(session: AsyncSession, user: User | None, page: int, page_size: int) -> tuple[list[Video], int]:
-    public_ready = (
-        (Video.status == VideoStatus.READY.value)
-        & (Video.privacy == VideoPrivacy.PUBLIC.value)
-        & (Video.moderation_status == ModerationStatus.APPROVED.value)
-    )
+    public_ready = discoverable_video()
     visible = public_ready if user is None else or_(Video.owner_id == user.id, public_ready)
     visible = visible & Video.deleted_at.is_(None)
     total = await session.scalar(select(func.count()).select_from(Video).where(visible))
@@ -81,7 +80,7 @@ async def get_video_for_read(session: AsyncSession, user: User | None, video_id:
         raise _not_found()
     if user is not None and video.owner_id == user.id:
         return video
-    if video.status == VideoStatus.READY.value and video.privacy in {VideoPrivacy.PUBLIC.value, VideoPrivacy.UNLISTED.value}:
+    if is_direct_link_readable_video(video):
         return video
     raise _forbidden()
 
@@ -310,20 +309,21 @@ async def transition_video_status(session: AsyncSession, video: Video, target: V
     return video
 
 
-async def queue_processing_job(session: AsyncSession, user: User, video_id: UUID) -> VideoProcessingJob:
+async def queue_processing_job_for_owner(
+    session: AsyncSession,
+    user: User,
+    video_id: UUID,
+    processing_queue: ProcessingQueue,
+) -> VideoProcessingJob:
     video = await get_video_for_owner(session, user, video_id)
     if VideoStatus(video.status) != VideoStatus.UPLOADED:
         raise _conflict(
             "Video must be uploaded before processing can be queued",
             {"current_status": video.status, "required_status": VideoStatus.UPLOADED.value},
         )
-    validate_video_transition(VideoStatus(video.status), VideoStatus.QUEUED)
-    job = VideoProcessingJob(video_id=video.id, status=JobStatus.QUEUED.value)
-    video.status = VideoStatus.QUEUED.value
-    session.add(job)
-    await session.commit()
-    await session.refresh(job)
-    return job
+    return (
+        await queue_processing_job(session, video, processing_queue, generation=uuid4())
+    ).job
 
 
 async def processing_status(session: AsyncSession, user: User | None, video_id: UUID) -> ProcessingStatusResponse:
@@ -337,7 +337,16 @@ async def processing_status(session: AsyncSession, user: User | None, video_id: 
     return ProcessingStatusResponse(
         video_id=video.id,
         video_status=VideoStatus(video.status),
-        latest_job=result.scalar_one_or_none(),
+        latest_job=(
+            ProcessingStatusJobResponse(
+                id=job.id,
+                video_id=job.video_id,
+                status=JobStatus(job.status),
+                stage=ProcessingStage(job.stage),
+            )
+            if (job := result.scalar_one_or_none()) is not None
+            else None
+        ),
         failure_code=video.failure_code,
         failure_message=video.failure_message,
     )
@@ -361,10 +370,7 @@ async def video_with_renditions_for_playback(session: AsyncSession, user: User |
         raise _not_found()
     if video.status != VideoStatus.READY.value:
         raise _conflict("Video is not ready for playback", {"current_status": video.status})
-    if (user is None or video.owner_id != user.id) and video.privacy not in {
-        VideoPrivacy.PUBLIC.value,
-        VideoPrivacy.UNLISTED.value,
-    }:
+    if (user is None or video.owner_id != user.id) and not is_direct_link_readable_video(video):
         raise _forbidden()
     return video
 

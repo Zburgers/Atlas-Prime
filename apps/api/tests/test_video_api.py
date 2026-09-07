@@ -7,16 +7,19 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.models import Video, VideoAssetInventory, VideoProcessingJob, VideoRendition
+from app.db.models import ProcessingDispatch, Video, VideoAssetInventory, VideoProcessingJob, VideoRendition
 from app.db.session import get_session
 from app.api.deps import get_original_storage, get_processed_hls_storage, get_processing_queue
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
 from app.services.processing_queue import QueueInspection, WorkerInspection
+from app.services import telemetry_admission
+from app.services.processing_dispatch import publish_pending_processing_job
 from app.services import videos as video_service
 from app.services.storage import HlsObject, HlsObjectNotFoundError, StoredObject, original_storage_key
 from app.services.uploads import _mark_video_failed
@@ -215,6 +218,14 @@ def enable_dev_auth_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_ADMIN_CLERK_USER_IDS", "operator")
 
 
+@pytest.fixture(autouse=True)
+def fake_telemetry_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def admit(**_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(telemetry_admission, "admit_playback_event", admit)
+
+
 def test_create_video_defaults_to_private_draft(client: TestClient) -> None:
     response = client.post("/videos", headers=_headers(), json={"title": "First lesson"})
 
@@ -409,6 +420,75 @@ def test_process_requires_uploaded_state(client: TestClient) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"]["details"]["required_status"] == "uploaded"
+
+
+def test_process_publishes_the_canonical_job(client: TestClient) -> None:
+    _storage, queue = _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers(), json={"title": "Manual processing"})
+    video_id = created.json()["id"]
+    import asyncio
+
+    async def mark_uploaded() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            video.status = VideoStatus.UPLOADED.value
+            video.original_storage_key = f"originals/{video_id}/source.mp4"
+            await session.commit()
+
+    asyncio.run(mark_uploaded())
+
+    response = client.post(f"/videos/{video_id}/process", headers=_headers())
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "queued"
+    assert queue.jobs[0]["job_id"] == response.json()["id"]
+
+
+def test_upload_keeps_committed_job_reconcilable_when_broker_is_down(client: TestClient) -> None:
+    class FailingQueue(FakeProcessingQueue):
+        def enqueue_video_processing(self, **_kwargs: object) -> str:
+            raise RuntimeError("broker unavailable")
+
+    storage = FakeOriginalStorage()
+    queue = FailingQueue()
+    app.dependency_overrides[get_original_storage] = lambda: storage
+    app.dependency_overrides[get_processing_queue] = lambda: queue
+    created = client.post("/videos", headers=_headers(), json={"title": "Reconcile me"})
+    video_id = created.json()["id"]
+
+    response = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers(),
+        files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+    )
+
+    assert response.status_code == 503
+
+    import asyncio
+
+    async def load_dispatch() -> tuple[Video, VideoProcessingJob, ProcessingDispatch]:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            job = await session.scalar(select(VideoProcessingJob).where(VideoProcessingJob.video_id == UUID(video_id)))
+            dispatch = await session.scalar(select(ProcessingDispatch).where(ProcessingDispatch.job_id == job.id))
+            assert video is not None and job is not None and dispatch is not None
+            return video, job, dispatch
+
+    video, job, dispatch = asyncio.run(load_dispatch())
+    assert video.status == VideoStatus.QUEUED.value
+    assert job.status == "queued"
+    assert dispatch.status == "pending"
+    assert dispatch.attempt_count == 1
+
+    working_queue = FakeProcessingQueue()
+
+    async def reconcile() -> str:
+        async with app.state.test_session_maker() as session:
+            return await publish_pending_processing_job(session, job.id, working_queue)
+
+    assert asyncio.run(reconcile()) == "task-123"
+    assert len(working_queue.jobs) == 1
 
 
 def test_upload_requires_video_owner(client: TestClient) -> None:

@@ -64,6 +64,14 @@ def disable_external_telemetry_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(videos_api.telemetry_metrics, "increment_metric", ignore_metric)
 
 
+@pytest.fixture(autouse=True)
+def fake_telemetry_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def admit(**_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(videos_api.telemetry_admission, "admit_playback_event", admit)
+
+
 def _headers(user_id: str = "viewer", email: str = "viewer@example.com") -> dict[str, str]:
     return {
         "X-Atlas-Dev-Clerk-User-Id": user_id,

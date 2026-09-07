@@ -217,6 +217,27 @@ class VideoProcessingJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="processing_jobs")
+    dispatch: Mapped["ProcessingDispatch | None"] = relationship(back_populates="job", cascade="all, delete-orphan", uselist=False)
+
+
+class ProcessingDispatch(Base):
+    __tablename__ = "processing_dispatches"
+    __table_args__ = (
+        CheckConstraint("status in ('pending', 'published', 'canceled')", name="ck_processing_dispatches_status"),
+        UniqueConstraint("job_id", name="uq_processing_dispatches_job"),
+        Index("ix_processing_dispatches_status_created_at", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("video_processing_jobs.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
+    attempt_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    job: Mapped[VideoProcessingJob] = relationship(back_populates="dispatch")
 
 
 class VideoAssetInventory(Base):
@@ -272,6 +293,7 @@ class VideoImpression(Base):
     __tablename__ = "video_impressions"
     __table_args__ = (
         CheckConstraint("position >= 0", name="ck_video_impressions_position_nonnegative"),
+        UniqueConstraint("dedupe_key", name="uq_video_impressions_dedupe_key"),
         Index("ix_video_impressions_video_created_at", "video_id", "created_at"),
         Index("ix_video_impressions_request_id", "request_id"),
     )
@@ -282,6 +304,7 @@ class VideoImpression(Base):
     surface: Mapped[str] = mapped_column(Text, nullable=False)
     position: Mapped[int] = mapped_column(nullable=False)
     request_id: Mapped[str | None] = mapped_column(Text)
+    dedupe_key: Mapped[str] = mapped_column(Text, nullable=False, default=lambda: str(uuid.uuid4()))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     video: Mapped[Video] = relationship(back_populates="impressions")

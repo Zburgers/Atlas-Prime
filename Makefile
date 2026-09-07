@@ -17,7 +17,8 @@ help:
 		'  make analytics-rebuild DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD  Rebuild daily analytics' \
 		'  make telemetry-purge [ARGS="--apply"]  Purge raw playback events (dry run by default)' \
 		'  make search-reindex  Enqueue a public-video search index rebuild' \
-		'  make processing-recover-stale [ARGS="--apply"]  Inspect/fail abandoned processing jobs (dry run by default)' \
+			'  make processing-recover-stale [ARGS="--apply"]  Inspect/fail abandoned processing jobs (dry run by default)' \
+			'  make processing-reconcile [ARGS="--limit 100"]  Republish committed but unpublished media jobs' \
 		'  make deletion-reconcile  Reconcile pending/running/failed video tombstones' \
 		'  make fixture    Generate a tiny legal MP4 fixture with ffmpeg'
 
@@ -86,6 +87,10 @@ search-reindex: env
 .PHONY: processing-recover-stale
 processing-recover-stale: env
 	$(COMPOSE) run --rm --build api python -m app.commands.recover_stale_jobs $(ARGS)
+
+.PHONY: processing-reconcile
+processing-reconcile: env
+	$(COMPOSE) run --rm --build api python -m app.commands.reconcile_processing_dispatches $(ARGS)
 
 .PHONY: deletion-reconcile
 deletion-reconcile: env

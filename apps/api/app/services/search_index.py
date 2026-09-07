@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core import config
 from app.db.models import Video, VideoTextTrack
-from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
+from app.domain.visibility import discoverable_video
 from app.services.storage import HlsObjectNotFoundError, ProcessedHlsStorage
 
 INDEX_UID = "atlas_videos"
@@ -35,11 +35,7 @@ async def rebuild_public_video_index(
     result = await session.execute(
         select(Video)
         .options(selectinload(Video.channel), selectinload(Video.text_tracks))
-        .where(
-            Video.status == VideoStatus.READY.value,
-            Video.privacy == VideoPrivacy.PUBLIC.value,
-            Video.moderation_status == ModerationStatus.APPROVED.value,
-        )
+        .where(discoverable_video())
         .order_by(Video.created_at.desc())
     )
     documents = [await _document(video, storage) for video in result.scalars()]

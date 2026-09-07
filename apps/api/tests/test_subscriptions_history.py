@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_session
+from app.api import videos as videos_api
 from app.db.base import Base
 from app.db.models import Video
 from app.domain.status import VideoPrivacy, VideoStatus
@@ -48,6 +49,14 @@ def client() -> Iterator[TestClient]:
 @pytest.fixture(autouse=True)
 def dev_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_ALLOW_DEV_AUTH_HEADERS", "true")
+
+
+@pytest.fixture(autouse=True)
+def fake_telemetry_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def admit(**_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(videos_api.telemetry_admission, "admit_playback_event", admit)
 
 
 def headers(user: str) -> dict[str, str]:

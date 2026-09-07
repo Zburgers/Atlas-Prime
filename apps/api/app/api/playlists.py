@@ -4,13 +4,17 @@ from fastapi import APIRouter, Response, status
 
 from app.api.deps import CurrentUserDep, OptionalCurrentUserDep, SessionDep
 from app.api.videos import video_list_item
+from app.domain.visibility import is_discoverable_video
 from app.schemas.playlists import PlaylistCreate, PlaylistItemCreate, PlaylistItemResponse, PlaylistResponse
 from app.services import playlists as playlist_service
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
 
 def response(playlist: object) -> PlaylistResponse:
-    return PlaylistResponse(id=playlist.id, owner_id=playlist.owner_id, title=playlist.title, description=playlist.description, privacy=playlist.privacy, created_at=playlist.created_at, updated_at=playlist.updated_at, items=[PlaylistItemResponse(id=item.id, position=item.position, created_at=item.created_at, video=video_list_item(item.video)) for item in sorted(playlist.items, key=lambda item: item.position)])
+    items = sorted(playlist.items, key=lambda item: item.position)
+    if playlist.privacy == "public":
+        items = [item for item in items if is_discoverable_video(item.video)]
+    return PlaylistResponse(id=playlist.id, owner_id=playlist.owner_id, title=playlist.title, description=playlist.description, privacy=playlist.privacy, created_at=playlist.created_at, updated_at=playlist.updated_at, items=[PlaylistItemResponse(id=item.id, position=item.position, created_at=item.created_at, video=video_list_item(item.video)) for item in items])
 
 @router.post("", response_model=PlaylistResponse, status_code=status.HTTP_201_CREATED)
 async def create(payload: PlaylistCreate, session: SessionDep, user: CurrentUserDep) -> PlaylistResponse:

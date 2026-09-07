@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import PlaybackEvent, RecommendationRequest, RecommendationResult, User, Video, VideoImpression, VideoView
-from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
+from app.domain.visibility import discoverable_video
 
 
 @dataclass(frozen=True)
@@ -88,9 +88,7 @@ async def load_feed_results(
         .options(selectinload(RecommendationResult.video).selectinload(Video.channel))
         .where(
             RecommendationResult.recommendation_request_id == recommendation_request.id,
-            Video.status == VideoStatus.READY.value,
-            Video.privacy == VideoPrivacy.PUBLIC.value,
-            Video.moderation_status == ModerationStatus.APPROVED.value,
+            discoverable_video(),
         )
         .order_by(RecommendationResult.rank)
     )
@@ -98,9 +96,7 @@ async def load_feed_results(
         select(func.count())
         .select_from(Video)
         .where(
-            Video.status == VideoStatus.READY.value,
-            Video.privacy == VideoPrivacy.PUBLIC.value,
-            Video.moderation_status == ModerationStatus.APPROVED.value,
+            discoverable_video(),
         )
     )
     return (

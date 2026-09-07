@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Channel, User, Video
-from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
+from app.domain.visibility import discoverable_video
 from app.schemas.channels import ChannelUpdate
 
 RESERVED_HANDLES = {
@@ -98,12 +98,7 @@ async def get_public_channel_with_videos(session: AsyncSession, handle: str) -> 
     videos_result = await session.execute(
         select(Video)
         .options(selectinload(Video.channel))
-        .where(
-            Video.channel_id == channel.id,
-            Video.status == VideoStatus.READY.value,
-            Video.privacy == VideoPrivacy.PUBLIC.value,
-            Video.moderation_status == ModerationStatus.APPROVED.value,
-        )
+        .where(Video.channel_id == channel.id, discoverable_video())
         .order_by(Video.created_at.desc())
     )
     return channel, list(videos_result.scalars())

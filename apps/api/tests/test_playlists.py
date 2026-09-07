@@ -88,3 +88,35 @@ def test_non_owner_cannot_mutate_playlist_and_private_playlist_is_not_public(cli
 
     assert private_read.status_code == 404
     assert other_add.status_code == 403
+
+
+def test_public_playlist_filters_private_items_and_keeps_positions_after_middle_delete(client: TestClient) -> None:
+    videos = [
+        client.post("/videos", headers=headers("owner"), json={"title": title}).json()
+        for title in ("First", "Second", "Third", "Fourth")
+    ]
+    for video in videos:
+        mark_ready(client, video["id"])
+    playlist = client.post("/playlists", headers=headers("owner"), json={"title": "Stable list", "privacy": "public"}).json()
+    items = [
+        client.post(
+            f"/playlists/{playlist['id']}/items",
+            headers=headers("owner"),
+            json={"video_id": video["id"]},
+        ).json()
+        for video in videos[:3]
+    ]
+
+    assert client.delete(f"/playlists/{playlist['id']}/items/{items[1]['id']}", headers=headers("owner")).status_code == 204
+    fourth = client.post(
+        f"/playlists/{playlist['id']}/items",
+        headers=headers("owner"),
+        json={"video_id": videos[3]["id"]},
+    ).json()
+    assert fourth["position"] == 3
+
+    assert client.patch(f"/videos/{videos[2]['id']}", headers=headers("owner"), json={"privacy": "private"}).status_code == 200
+    read = client.get(f"/playlists/{playlist['id']}")
+
+    assert read.status_code == 200
+    assert [(item["position"], item["video"]["title"]) for item in read.json()["items"]] == [(0, "First"), (3, "Fourth")]

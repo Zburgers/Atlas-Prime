@@ -48,6 +48,7 @@ class ProcessingQueue:
     ) -> str:
         result = self._celery.send_task(
             self.task_name,
+            task_id=str(job_id),
             kwargs={
                 "video_id": str(video_id),
                 "job_id": str(job_id),

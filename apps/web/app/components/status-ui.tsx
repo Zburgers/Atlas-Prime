@@ -83,8 +83,8 @@ export function StatusPanel({
             <dd>{STAGE_LABELS[processingStatus.latest_job.stage]}</dd>
           </div>
           <div>
-            <dt>Attempts</dt>
-            <dd>{processingStatus.latest_job.attempt_count}</dd>
+            <dt>Latest status</dt>
+            <dd>{processingStatus.latest_job.status}</dd>
           </div>
         </dl>
       ) : null}

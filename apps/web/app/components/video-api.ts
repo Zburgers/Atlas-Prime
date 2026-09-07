@@ -370,7 +370,7 @@ export type StudioAnalytics = {
 export type ProcessingStatus = {
   video_id: string;
   video_status: VideoStatus;
-  latest_job: ProcessingJob | null;
+  latest_job: Pick<ProcessingJob, "id" | "video_id" | "status" | "stage"> | null;
   failure_code: string | null;
   failure_message: string | null;
 };

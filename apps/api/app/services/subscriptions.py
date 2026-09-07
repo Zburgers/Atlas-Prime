@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Channel, ChannelSubscription, User, Video, WatchHistory
-from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
+from app.domain.visibility import discoverable_video, owner_or_direct_link_readable_video
 
 
 async def subscribe(session: AsyncSession, user: User, channel_id: UUID, response: Response) -> None:
@@ -29,7 +29,7 @@ async def unsubscribe(session: AsyncSession, user: User, channel_id: UUID) -> No
 
 async def subscription_feed(session: AsyncSession, user: User) -> list[Video]:
     subscribed = select(ChannelSubscription.channel_id).where(ChannelSubscription.user_id == user.id)
-    visible = (Video.channel_id.in_(subscribed) & (Video.status == VideoStatus.READY.value) & (Video.privacy == VideoPrivacy.PUBLIC.value) & (Video.moderation_status == ModerationStatus.APPROVED.value))
+    visible = Video.channel_id.in_(subscribed) & discoverable_video()
     result = await session.execute(select(Video).options(selectinload(Video.channel)).where(visible).order_by(Video.created_at.desc()))
     return list(result.scalars())
 
@@ -46,5 +46,11 @@ async def record_history(session: AsyncSession, user: User | None, video: Video,
 
 
 async def history(session: AsyncSession, user: User) -> list[WatchHistory]:
-    result = await session.execute(select(WatchHistory).options(selectinload(WatchHistory.video).selectinload(Video.channel)).where(WatchHistory.user_id == user.id).order_by(WatchHistory.watched_at.desc()))
+    result = await session.execute(
+        select(WatchHistory)
+        .join(Video, Video.id == WatchHistory.video_id)
+        .options(selectinload(WatchHistory.video).selectinload(Video.channel))
+        .where(WatchHistory.user_id == user.id, owner_or_direct_link_readable_video(user.id))
+        .order_by(WatchHistory.watched_at.desc())
+    )
     return list(result.scalars())

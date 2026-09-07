@@ -19,7 +19,7 @@ from app.domain.ranking import (
     related_feed_score,
     trending_feed_score,
 )
-from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
+from app.domain.visibility import discoverable_video
 from app.services import recommendation_logging
 from app.services import videos as video_service
 
@@ -49,11 +49,7 @@ async def home_feed(
     if existing is not None:
         ranked_videos, total = existing
         return resolved_request_id, ranked_videos, total
-    visible = (
-        (Video.status == VideoStatus.READY.value)
-        & (Video.privacy == VideoPrivacy.PUBLIC.value)
-        & (Video.moderation_status == ModerationStatus.APPROVED.value)
-    )
+    visible = discoverable_video()
     total = await session.scalar(select(func.count()).select_from(Video).where(visible))
     result = await session.execute(select(Video).options(selectinload(Video.channel)).where(visible))
     now = datetime.now(timezone.utc)
@@ -183,11 +179,7 @@ async def _ranked_public_feed(
     if existing is not None:
         ranked_videos, total = existing
         return resolved_request_id, ranked_videos, total
-    visible = (
-        (Video.status == VideoStatus.READY.value)
-        & (Video.privacy == VideoPrivacy.PUBLIC.value)
-        & (Video.moderation_status == ModerationStatus.APPROVED.value)
-    )
+    visible = discoverable_video()
     if excluded_video_id is not None:
         visible &= Video.id != excluded_video_id
     total = await session.scalar(select(func.count()).select_from(Video).where(visible))

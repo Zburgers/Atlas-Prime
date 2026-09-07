@@ -109,10 +109,23 @@ def test_home_feed_ranks_public_ready_videos_by_quality_and_freshness(client: Te
     fresh = client.post("/videos", headers=_headers("owner"), json={"title": "Fresh low signal"}).json()
     private = client.post("/videos", headers=_headers("owner"), json={"title": "Private ready"}).json()
     draft = client.post("/videos", headers=_headers("owner"), json={"title": "Public draft"}).json()
+    tombstoned = client.post("/videos", headers=_headers("owner"), json={"title": "Tombstoned public"}).json()
     _mark_video_ready(client, video_id=strong["id"], created_at=now - timedelta(days=5), views=120, likes=14)
     _mark_video_ready(client, video_id=fresh["id"], created_at=now - timedelta(hours=1), views=1, likes=0)
     _mark_video_ready(client, video_id=private["id"], privacy=VideoPrivacy.PRIVATE, views=999, likes=999)
+    _mark_video_ready(client, video_id=tombstoned["id"], views=999, likes=999)
     client.patch(f"/videos/{draft['id']}", headers=_headers("owner"), json={"privacy": "public"})
+
+    import asyncio
+
+    async def tombstone() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(tombstoned["id"]))
+            assert video is not None
+            video.deleted_at = datetime.now(timezone.utc)
+            await session.commit()
+
+    asyncio.run(tombstone())
 
     response = client.get("/feed/home")
 

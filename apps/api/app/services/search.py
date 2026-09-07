@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core import config
 from app.db.models import Channel, Video
-from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
+from app.domain.visibility import discoverable_video
 from app.services.search_index import INDEX_UID
 
 logger = logging.getLogger(__name__)
@@ -189,8 +189,4 @@ def _postgres_search_document() -> object:
 
 
 def _public_ready() -> object:
-    return (
-        (Video.status == VideoStatus.READY.value)
-        & (Video.privacy == VideoPrivacy.PUBLIC.value)
-        & (Video.moderation_status == ModerationStatus.APPROVED.value)
-    )
+    return discoverable_video()

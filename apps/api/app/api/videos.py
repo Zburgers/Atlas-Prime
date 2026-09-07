@@ -8,7 +8,7 @@ from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Path, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, File, HTTPException, Path, Query, Request, Response, UploadFile, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -164,8 +164,13 @@ async def delete_video(
 
 
 @router.post("/videos/{video_id}/process", response_model=ProcessingJobResponse, status_code=status.HTTP_201_CREATED)
-async def process_video(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> object:
-    return await video_service.queue_processing_job(session, user, video_id)
+async def process_video(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+    processing_queue: ProcessingQueueDep,
+) -> object:
+    return await video_service.queue_processing_job_for_owner(session, user, video_id, processing_queue)
 
 
 @router.post("/videos/{video_id}/upload", response_model=VideoUploadResponse)
@@ -356,8 +361,10 @@ async def record_playback_event(
     response: Response,
     session: SessionDep,
     user: OptionalCurrentUserDep,
+    telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
 ) -> PlaybackEvent:
     video = await video_service.get_video_for_read(session, user, video_id)
+    anonymous_session_token = telemetry_admission.ensure_session_token(response, telemetry_session)
     requested_video_id = video.id
     existing = await session.scalar(select(PlaybackEvent).where(PlaybackEvent.event_id == payload.event_id))
     if existing is not None:
@@ -375,6 +382,7 @@ async def record_playback_event(
             video_id=requested_video_id,
             user_id=getattr(user, "id", None),
             playback_session_id=payload.playback_session_id,
+            anonymous_session_token=anonymous_session_token,
         )
     except telemetry_admission.TelemetryAdmissionLimitExceeded:
         await telemetry_metrics.increment_metric("rate_limited")
@@ -443,8 +451,12 @@ async def record_video_impression(
     payload: VideoImpressionCreate,
     session: SessionDep,
     user: OptionalCurrentUserDep,
+    response: Response,
+    telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
 ) -> object:
-    return await analytics_service.record_impression(session, user, video_id, payload)
+    await video_service.get_video_for_read(session, user, video_id)
+    token = telemetry_admission.ensure_session_token(response, telemetry_session)
+    return await analytics_service.record_impression(session, user, video_id, payload, response, token)
 
 
 @router.post("/videos/{video_id}/views", response_model=VideoViewResponse)
@@ -454,8 +466,11 @@ async def record_video_view(
     response: Response,
     session: SessionDep,
     user: OptionalCurrentUserDep,
+    telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
 ) -> VideoViewResponse:
-    return await analytics_service.record_view(session, user, video_id, payload, response)
+    await video_service.get_video_for_read(session, user, video_id)
+    token = telemetry_admission.ensure_session_token(response, telemetry_session)
+    return await analytics_service.record_view(session, user, video_id, payload, response, token)
 
 
 @router.get("/videos/{video_id}/engagement", response_model=VideoEngagementResponse)

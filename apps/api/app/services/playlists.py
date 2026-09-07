@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Playlist, PlaylistItem, User, Video
-from app.domain.status import ModerationStatus, VideoPrivacy, VideoStatus
+from app.domain.visibility import is_discoverable_video
 from app.schemas.playlists import PlaylistCreate
 from app.services import videos as video_service
 
@@ -55,12 +55,16 @@ async def for_read(session: AsyncSession, user: User | None, playlist_id: UUID) 
 
 async def add_item(session: AsyncSession, user: User, playlist_id: UUID, video_id: UUID) -> PlaylistItem:
     playlist = await for_owner(session, user, playlist_id)
+    playlist = await session.scalar(select(Playlist).where(Playlist.id == playlist.id).with_for_update())
+    if playlist is None:
+        raise _not_found()
     video = await video_service.get_video_for_read(session, user, video_id)
-    if video.status != VideoStatus.READY.value or video.privacy != VideoPrivacy.PUBLIC.value or video.moderation_status != ModerationStatus.APPROVED.value:
+    if not is_discoverable_video(video):
         raise HTTPException(status_code=409, detail={"error": "Conflict", "message": "Only public ready videos can be added to playlists"})
     if await session.scalar(select(PlaylistItem).where(PlaylistItem.playlist_id == playlist.id, PlaylistItem.video_id == video.id)):
         raise HTTPException(status_code=409, detail={"error": "Conflict", "message": "Video is already in this playlist"})
-    position = int(await session.scalar(select(func.count()).select_from(PlaylistItem).where(PlaylistItem.playlist_id == playlist.id)) or 0)
+    max_position = await session.scalar(select(func.max(PlaylistItem.position)).where(PlaylistItem.playlist_id == playlist.id))
+    position = int(max_position if max_position is not None else -1) + 1
     item = PlaylistItem(playlist_id=playlist.id, video_id=video.id, position=position)
     item.video = video
     session.add(item); await session.commit()
