@@ -7,7 +7,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.status import JobStatus, RenditionStatus, VideoPrivacy, VideoStatus
+from app.domain.status import JobStatus, ProcessingStage, RenditionStatus, VideoPrivacy, VideoStatus
+from app.schemas.captions import TextTrackResponse
+
+
+class VersionResponse(BaseModel):
+    build_sha: str
+    build_time: str
+    app_environment: str
+    alembic_head: str
 
 
 class UserResponse(BaseModel):
@@ -31,10 +39,16 @@ class VideoUpdate(BaseModel):
 
 
 class PlaybackEventCreate(BaseModel):
-    event_type: Literal["player_ready", "play", "pause", "error", "unsupported", "buffering", "quality_change"]
+    playback_session_id: UUID
+    event_id: UUID
+    event_type: Literal[
+        "player_ready", "play", "pause", "seek", "progress_ping", "buffer_start", "buffer_end", "ended",
+        "error", "unsupported", "buffering", "quality_change", "card_click",
+    ]
     position_seconds: Decimal | None = Field(default=None, ge=0)
     quality_label: str | None = Field(default=None, max_length=40)
     client_timestamp: datetime | None = None
+    request_id: str | None = Field(default=None, max_length=120)
 
 
 class PlaybackEventResponse(BaseModel):
@@ -43,11 +57,52 @@ class PlaybackEventResponse(BaseModel):
     id: UUID
     user_id: UUID | None
     video_id: UUID
+    playback_session_id: UUID
+    event_id: UUID
     event_type: str
     position_seconds: Decimal | None
     quality_label: str | None
     client_timestamp: datetime | None
+    request_id: str | None
     created_at: datetime
+
+
+class VideoImpressionCreate(BaseModel):
+    surface: str = Field(min_length=1, max_length=40)
+    position: int = Field(ge=0)
+    request_id: str | None = Field(default=None, max_length=120)
+
+
+class VideoImpressionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID | None
+    video_id: UUID
+    surface: str
+    position: int
+    request_id: str | None
+    created_at: datetime
+
+
+class VideoViewCreate(BaseModel):
+    session_id: str = Field(min_length=3, max_length=120)
+    position_seconds: Decimal = Field(ge=0)
+    request_id: str | None = Field(default=None, max_length=120)
+
+
+class VideoViewResponse(BaseModel):
+    video_id: UUID
+    counted: bool
+    view_count: int
+    threshold_seconds: Decimal
+
+
+class VideoEngagementResponse(BaseModel):
+    video_id: UUID
+    liked: bool
+    like_count: int
+    saved_to_watch_later: bool
 
 
 class VideoResponse(BaseModel):
@@ -59,15 +114,57 @@ class VideoResponse(BaseModel):
     description: str | None
     privacy: VideoPrivacy
     status: VideoStatus
-    original_storage_key: str | None
-    hls_master_storage_key: str | None
-    thumbnail_storage_key: str | None
     duration_seconds: Decimal | None
     width: int | None
     height: int | None
     video_codec: str | None
     audio_codec: str | None
     source_bitrate: int | None
+    view_count: int
+    impression_count: int
+    like_count: int
+    failure_code: str | None
+    failure_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class VideoDebugResponse(VideoResponse):
+    """Operator-only view of storage-backed video internals."""
+
+    original_storage_key: str | None
+    hls_master_storage_key: str | None
+    thumbnail_storage_key: str | None
+
+
+class AdminTelemetryResponse(BaseModel):
+    status: Literal["ok", "degraded"]
+    accepted_event_count: int | None
+    duplicate_event_count: int | None
+    rate_limited_event_count: int | None
+    purged_event_count: int | None
+    retention_cutoff: datetime
+
+
+class VideoListItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    channel_id: UUID | None = None
+    title: str
+    description: str | None
+    privacy: VideoPrivacy
+    status: VideoStatus
+    thumbnail_url: str | None = None
+    channel_handle: str | None = None
+    channel_display_name: str | None = None
+    caption_snippet: str | None = None
+    duration_seconds: Decimal | None
+    width: int | None
+    height: int | None
+    view_count: int
+    impression_count: int
+    like_count: int
     failure_code: str | None
     failure_message: str | None
     created_at: datetime
@@ -75,7 +172,7 @@ class VideoResponse(BaseModel):
 
 
 class VideoListResponse(BaseModel):
-    items: list[VideoResponse]
+    items: list[VideoListItemResponse]
     total: int
     page: int
     page_size: int
@@ -87,6 +184,7 @@ class ProcessingJobResponse(BaseModel):
     id: UUID
     video_id: UUID
     status: JobStatus
+    stage: ProcessingStage
     attempt_count: int
     worker_id: str | None
     started_at: datetime | None
@@ -96,12 +194,27 @@ class ProcessingJobResponse(BaseModel):
     created_at: datetime
 
 
+class ProcessingStatusJobResponse(BaseModel):
+    id: UUID
+    video_id: UUID
+    status: JobStatus
+    stage: ProcessingStage
+
+
 class ProcessingStatusResponse(BaseModel):
     video_id: UUID
     video_status: VideoStatus
-    latest_job: ProcessingJobResponse | None
+    latest_job: ProcessingStatusJobResponse | None
     failure_code: str | None
     failure_message: str | None
+
+
+class ProcessingTimelineResponse(BaseModel):
+    items: list[ProcessingJobResponse]
+
+
+class PlaybackTokenRotationResponse(BaseModel):
+    playback_token_version: int
 
 
 class RenditionResponse(BaseModel):
@@ -113,9 +226,37 @@ class RenditionResponse(BaseModel):
     width: int
     height: int
     target_bitrate: int
-    playlist_storage_key: str | None
+    video_codec: str | None
+    segment_count: int | None
+    output_size_bytes: int | None
     status: RenditionStatus
     created_at: datetime
+
+
+class RenditionDebugResponse(RenditionResponse):
+    """Operator-only view of rendition storage internals."""
+
+    playlist_storage_key: str | None
+
+
+class VideoChapterInput(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    start_seconds: Decimal = Field(ge=0, decimal_places=3)
+
+
+class VideoChapterResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    title: str
+    start_seconds: Decimal
+
+
+class VideoChapterReplace(BaseModel):
+    items: list[VideoChapterInput] = Field(max_length=100)
+
+
+class VideoChapterListResponse(BaseModel):
+    items: list[VideoChapterResponse]
 
 
 class PlaybackResponse(BaseModel):
@@ -124,15 +265,15 @@ class PlaybackResponse(BaseModel):
     master_playlist_url: str | None
     thumbnail_url: str | None
     renditions: list[RenditionResponse]
+    text_tracks: list[TextTrackResponse] = []
+    chapters: list[VideoChapterResponse] = []
 
 
 class VideoUploadResponse(BaseModel):
     video: VideoResponse
     processing_job: ProcessingJobResponse
-    storage_key: str
     size_bytes: int
     content_type: str
-    celery_task_id: str
 
 
 class ErrorResponse(BaseModel):
@@ -149,8 +290,8 @@ class AdminJobResponse(ProcessingJobResponse):
 
 
 class AdminVideoDebugResponse(BaseModel):
-    video: VideoResponse
-    renditions: list[RenditionResponse]
+    video: VideoDebugResponse
+    renditions: list[RenditionDebugResponse]
     processing_jobs: list[ProcessingJobResponse]
     recent_playback_events: list[PlaybackEventResponse]
 

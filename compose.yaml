@@ -28,12 +28,30 @@ services:
       timeout: 3s
       retries: 20
 
+  search:
+    image: getmeili/meilisearch:v1.37
+    environment:
+      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch-data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7700/health | grep -q '\"status\":\"available\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   minio:
     image: minio/minio:latest
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-atlasminio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-atlasminiopassword}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${ATLAS_MEDIA_CORS_ALLOWED_ORIGINS:-http://localhost:3001}
+      MINIO_API_CORS_ALLOW_CREDENTIALS_WITH_WILDCARD: "off"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -67,6 +85,9 @@ services:
   api:
     build:
       context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     env_file:
       - .env
     environment:
@@ -80,19 +101,31 @@ services:
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MINIO_BUCKET_ORIGINALS: ${MINIO_BUCKET_ORIGINALS:-atlas-originals}
       MINIO_BUCKET_PROCESSED: ${MINIO_BUCKET_PROCESSED:-atlas-processed}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-}
+      ATLAS_PLAYBACK_DELIVERY_MODE: ${ATLAS_PLAYBACK_DELIVERY_MODE:-proxy}
+      ATLAS_PLAYBACK_TOKEN_SECRET: ${ATLAS_PLAYBACK_TOKEN_SECRET:-}
+      ATLAS_PLAYBACK_TOKEN_TTL_SECONDS: ${ATLAS_PLAYBACK_TOKEN_TTL_SECONDS:-300}
+      ATLAS_SEARCH_BACKEND: ${ATLAS_SEARCH_BACKEND:-meilisearch}
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://search:7700}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
       ATLAS_UPLOAD_MAX_BYTES: ${ATLAS_UPLOAD_MAX_BYTES:-104857600}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-http://localhost:3001}
       ATLAS_ALLOW_DEV_AUTH_HEADERS: ${ATLAS_ALLOW_DEV_AUTH_HEADERS:-false}
+      ATLAS_ADMIN_CLERK_USER_IDS: ${ATLAS_ADMIN_CLERK_USER_IDS:-}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      search:
         condition: service_healthy
       minio-bootstrap:
         condition: service_completed_successfully
@@ -119,6 +152,8 @@ services:
       MINIO_BUCKET_PROCESSED: ${MINIO_BUCKET_PROCESSED:-atlas-processed}
       ATLAS_FFMPEG_TIMEOUT_SECONDS: ${ATLAS_FFMPEG_TIMEOUT_SECONDS:-120}
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -131,6 +166,84 @@ services:
       timeout: 8s
       retries: 8
 
+  analytics-worker:
+    build:
+      context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://atlas:atlas@postgres:5432/atlas_prime}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
+    command: ["celery", "-A", "app.worker.analytics", "worker", "--loglevel=info", "--queues=analytics", "--hostname=analytics-worker@%h", "--concurrency=1"]
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.analytics inspect ping --timeout=5 | grep -q pong"]
+      interval: 15s
+      timeout: 8s
+      retries: 8
+
+  search-worker:
+    build:
+      context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://atlas:atlas@postgres:5432/atlas_prime}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://search:7700}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-}
+    command: ["celery", "-A", "app.worker.search", "worker", "--loglevel=info", "--queues=search", "--hostname=search-worker@%h", "--concurrency=1"]
+    depends_on:
+      api:
+        condition: service_healthy
+      search:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.search inspect ping --timeout=5 | grep -q pong"]
+      interval: 15s
+      timeout: 8s
+      retries: 8
+
+  analytics-beat:
+    build:
+      context: ./apps/api
+      args:
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
+    env_file:
+      - .env
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
+    command: ["celery", "-A", "app.worker.analytics", "beat", "--loglevel=info"]
+    depends_on:
+      analytics-worker:
+        condition: service_healthy
+
   web:
     build:
       context: .
@@ -139,11 +252,17 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-${CLERK_PUBLISHABLE_KEY:-}}
         CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     env_file:
       - .env
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
       ATLAS_API_BASE_URL: ${ATLAS_API_BASE_URL:-http://api:8000}
+      ATLAS_CI_SMOKE_MODE: ${ATLAS_CI_SMOKE_MODE:-false}
+      ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+      ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-${CLERK_PUBLISHABLE_KEY:-}}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
     ports:
@@ -162,6 +281,12 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       target: builder
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-${CLERK_PUBLISHABLE_KEY:-}}
+        CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+        ATLAS_BUILD_SHA: ${ATLAS_BUILD_SHA:-unknown}
+        ATLAS_BUILD_TIME: ${ATLAS_BUILD_TIME:-unknown}
     profiles:
       - test
     command: ["npm", "--workspace", "apps/web", "test"]
@@ -169,3 +294,4 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  meilisearch-data:

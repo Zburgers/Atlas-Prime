@@ -3,15 +3,19 @@
 import { Show, SignInButton, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, apiRequest, type AdminJob, type AdminOps, type AdminVideoDebug, type Video } from "../components/video-api";
+import { ApiError, apiRequest, type AdminJob, type AdminOps, type AdminRecommendationDebug, type AdminRecommendationRequest, type AdminTelemetryHealth, type AdminVideoDebug, type AdminVideoDebugVideo } from "../components/video-api";
 import { formatDate, StatusPill } from "../components/status-ui";
 
 export function AdminDashboard() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [ops, setOps] = useState<AdminOps | null>(null);
   const [jobs, setJobs] = useState<AdminJob[]>([]);
-  const [videos, setVideos] = useState<Video[]>([]);
+  const [videos, setVideos] = useState<AdminVideoDebugVideo[]>([]);
   const [debug, setDebug] = useState<AdminVideoDebug | null>(null);
+  const [recommendations, setRecommendations] = useState<AdminRecommendationRequest[]>([]);
+  const [recommendationDebug, setRecommendationDebug] = useState<AdminRecommendationDebug | null>(null);
+  const [telemetry, setTelemetry] = useState<AdminTelemetryHealth | null>(null);
+  const [telemetryUnavailable, setTelemetryUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,20 +32,23 @@ export function AdminDashboard() {
     }
     try {
       const token = await getToken();
-      const [opsResponse, jobsResponse, videosResponse] = await Promise.all([
+      const [opsResponse, jobsResponse, videosResponse, recommendationResponse] = await Promise.all([
         apiRequest<AdminOps>("/admin/ops", { token }),
         apiRequest<AdminJob[]>("/admin/jobs", { token }),
-        apiRequest<Video[]>("/admin/videos", { token }),
+        apiRequest<AdminVideoDebugVideo[]>("/admin/videos", { token }),
+        apiRequest<{ items: AdminRecommendationRequest[] }>("/admin/recommendations", { token }),
       ]);
       setOps(opsResponse);
       setJobs(jobsResponse);
       setVideos(videosResponse);
+      setRecommendations(recommendationResponse.items);
       const firstDebugVideo = videosResponse.find((video) => video.status === "failed") ?? videosResponse[0];
       if (firstDebugVideo) {
         setDebug(await apiRequest<AdminVideoDebug>(`/admin/videos/${firstDebugVideo.id}/debug`, { token }));
       } else {
         setDebug(null);
       }
+      if (recommendationResponse.items[0]) setRecommendationDebug(await apiRequest<AdminRecommendationDebug>(`/admin/recommendations/${recommendationResponse.items[0].request_id}`, { token }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load admin data.");
       setDebug(null);
@@ -63,11 +70,28 @@ export function AdminDashboard() {
     [getToken, isSignedIn],
   );
 
+  const loadTelemetry = useCallback(async () => {
+    if (!isSignedIn) {
+      setTelemetry(null);
+      setTelemetryUnavailable(false);
+      return;
+    }
+    try {
+      const token = await getToken();
+      setTelemetry(await apiRequest<AdminTelemetryHealth>("/admin/telemetry", { token }));
+      setTelemetryUnavailable(false);
+    } catch {
+      setTelemetry(null);
+      setTelemetryUnavailable(true);
+    }
+  }, [getToken, isSignedIn]);
+
   useEffect(() => {
     if (isLoaded) {
       queueMicrotask(() => void loadAdmin());
+      queueMicrotask(() => void loadTelemetry());
     }
-  }, [isLoaded, loadAdmin]);
+  }, [isLoaded, loadAdmin, loadTelemetry]);
 
   return (
     <div className="adminStack">
@@ -95,7 +119,14 @@ export function AdminDashboard() {
         {error ? <p className="errorText">{error}</p> : null}
         {loading ? <p className="muted">Loading admin data...</p> : null}
         {ops ? <OpsPanel ops={ops} /> : null}
+        <div className="actionRow">
+          <Link className="secondaryLink" href="/admin/reports">
+            Review reports
+          </Link>
+        </div>
       </section>
+
+      {isSignedIn ? <TelemetryPanel telemetry={telemetry} unavailable={telemetryUnavailable} /> : null}
 
       <div className="adminGrid">
         <section className="surface compactSurface" aria-labelledby="jobs-heading">
@@ -154,7 +185,53 @@ export function AdminDashboard() {
       </div>
 
       {debug ? <DebugPanel debug={debug} /> : null}
+      <section className="surface compactSurface" aria-labelledby="recommendations-heading">
+        <p className="eyebrow">Discovery</p><h2 id="recommendations-heading">Recommendation debug</h2>
+        {recommendations.length === 0 ? <p className="muted">No persisted feed requests.</p> : <div className="adminList" role="list">{recommendations.map((item) => <article className="adminListItem" key={item.request_id} role="listitem"><div><h3>{item.surface} / {item.algorithm_version}</h3><p className="metaLine">{item.request_id} / {item.total_results} results</p></div><button className="secondaryButton" type="button" onClick={async () => { const token = await getToken(); setRecommendationDebug(await apiRequest<AdminRecommendationDebug>(`/admin/recommendations/${item.request_id}`, { token })); }}>Inspect</button></article>)}</div>}
+        {recommendationDebug ? <DebugList title="Selected results" items={recommendationDebug.results.map((item) => `#${item.rank} / ${item.reason} / impressions ${item.impression_count} / playback ${item.playback_event_count} / views ${item.view_count}`)} empty="No ranked results." /> : null}
+      </section>
     </div>
+  );
+}
+
+function TelemetryPanel({ telemetry, unavailable }: { telemetry: AdminTelemetryHealth | null; unavailable: boolean }) {
+  const metricValue = (value: number | null) => (value === null ? "Unavailable" : value.toLocaleString());
+
+  return (
+    <section className="surface compactSurface" aria-labelledby="telemetry-heading">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Telemetry</p>
+          <h2 id="telemetry-heading">Playback telemetry health</h2>
+        </div>
+      </div>
+      {unavailable ? <p className="errorText">Telemetry metrics are temporarily unavailable.</p> : null}
+      {telemetry?.status === "degraded" ? <p className="errorText">Telemetry metrics are degraded; counts are unavailable.</p> : null}
+      {telemetry ? (
+        <dl className="detailGrid">
+          <div>
+            <dt>Accepted events</dt>
+            <dd>{metricValue(telemetry.accepted_event_count)}</dd>
+          </div>
+          <div>
+            <dt>Duplicate events</dt>
+            <dd>{metricValue(telemetry.duplicate_event_count)}</dd>
+          </div>
+          <div>
+            <dt>Rate-limited events</dt>
+            <dd>{metricValue(telemetry.rate_limited_event_count)}</dd>
+          </div>
+          <div>
+            <dt>Purged events</dt>
+            <dd>{metricValue(telemetry.purged_event_count)}</dd>
+          </div>
+          <div>
+            <dt>Retention cutoff</dt>
+            <dd>{formatDate(telemetry.retention_cutoff)}</dd>
+          </div>
+        </dl>
+      ) : null}
+    </section>
   );
 }
 

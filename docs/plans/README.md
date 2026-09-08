@@ -1,0 +1,123 @@
+# Atlas Prime Plan Index And Rollout Ledger
+
+Status: canonical plan index
+Last reconciled: 2026-09-08
+Repository branch: `docs/fullplatform-rollout`
+Reconciliation base commit: `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3` (current `main`)
+Current PR #12 implementation/test candidate: `a64364ab84708303f356eb74130e7d249ffaf970`
+Merged handbook PR: [#11](https://github.com/Zburgers/Atlas-Prime/pull/11), merge commit `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`
+
+## Contract
+
+This file is the only live execution index. Phase headings in the handbook and full-platform vision describe intent; they are not agent queues. Agents must not select work from an unindexed phase, brainstorm, issue list, or old “next step” paragraph.
+
+Execution is sequential unless this index explicitly says otherwise. A later plan may start only when the prior plan's exit gate is recorded as passed at an attributable commit. The next agent must verify the entry gate rather than inherit a historical green claim.
+
+Precedence for implementation work:
+
+1. `docs/00-ground-truth-mvp-spec.md` — approved MVP boundaries and locked contracts.
+2. `docs/PRODUCT_SPEC_AND_ENGINEERING_HANDBOOK.md` — implementation evidence and hardening findings, with the rollout-branch addendum.
+3. This index — current plan state and execution order.
+4. The selected executable plan below.
+5. Sector manifests and architecture docs for narrow interfaces.
+6. Code, migrations, tests, and runtime evidence — final descriptive truth.
+
+## Plan Inventory
+
+| Order | Plan | Kind | State | Entry gate | Exit evidence |
+|---:|---|---|---|---|---|
+| I | `README.md` | Canonical index | ACTIVE | None | Index completeness check |
+| R0 | `290626-post-mvp-brainstorm.md` | Research input | REFERENCE ONLY | None | Never executable |
+| R1 | `02-fullplatform-vision.md` | Architecture/rollout umbrella | ACTIVE REFERENCE | Read after MVP contracts | Never used as a task queue |
+| 1 | `2026-08-04-01-contract-boundary.md` | Executable remediation | COMPLETE | Exit evidence recorded at `5a44489` (make lint/test pass; smoke blocked only by occupied 127.0.0.1:3001) | `bac7a89`, `fd62a20`, `d79b42f`, `ced7472`, `d33d456`, `5a44489` |
+| 2 | `2026-08-04-02-upload-job-idempotency.md` | Executable remediation | COMPLETE | Plan 1 exit recorded; generation contract and bounded recovery validated at `6bb8064` | `6bb8064`: `make test` (115 API, 14 worker, 5 web); `make lint`; alternate-port smoke passed |
+| 3 | `2026-08-04-03-media-publication-deletion.md` | Executable remediation | COMPLETE | Plan 2 COMPLETE at `6bb8064`; Plan 3 implementation and exit evidence are verified at `83229d4` | `83229d4`: publication/deletion tests, `make lint`, `make test`, alternate-port smoke, and `git diff --check` |
+| 4 | `2026-08-04-04-telemetry-governance.md` | Executable remediation | COMPLETE | Plan 3 COMPLETE at `83229d4`; R-004 accepted on 2026-08-05; parent verified the Plan 4 exit gate at `3021889` | Historical Plan 4 exit `3021889`; PR #12 final telemetry reconciliation `a64364a` preserves D-013 and passed CI run `34223397162` including API/web/full smoke |
+| 5 | `2026-08-04-05-release-evidence.md` | Executable release gate | COMPLETE | Plans 1-4 complete | Historical Plan 5 evidence remains preserved; PR #12 runtime/test candidate `a64364a` passed CI run `34223397162`; docs-inclusive final-head qualification is tracked in `docs/audits/release-evidence-current.md` and the PR body |
+
+There is deliberately no implementation plan for ML personalization, monetization, live streaming, native mobile, or production deployment. Those remain unapproved or premature under the MVP contract. Creating detailed build instructions for them would give agents false authority and recreate the non-determinism this index prevents.
+
+## Reconciled Rollout State
+
+The PR #11 handbook audited `main` at `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`. This rollout branch contains substantial later implementation. Findings therefore reconcile as follows:
+
+| Handbook item | Rollout-branch state | Current action |
+|---|---|---|
+| C-001 admin authorization | PARTIAL | API `AdminUserDep` enforcement and denial tests are green at `bac7a89`; Next proxy remains transport-only and relies on FastAPI |
+| C-002 unlisted discovery | RESOLVED | Global listing filters to `public`; Plan 1 preserves regression tests |
+| C-003 response internals | RESOLVED | Product/operator schemas and frontend types are split at `fd62a20`/`d79b42f`; normal responses redact storage/task internals |
+| C-004 upload race/idempotency | RESOLVED | Atomic upload claim and one active processing generation at `392f7af`; concurrent losers are rejected before storage/queue side effects |
+| C-005 processing attempt ownership | RESOLVED | Generation propagation/fencing through `0ca718e`; bounded, dry-run-by-default stale recovery at `6bb8064` |
+| C-006 partial HLS cleanup | RESOLVED | Attempt-scoped upload and failure cleanup at `8cf082a`; atomic inventory publication at `a417095` |
+| C-007 storage deletion | RESOLVED | Tombstone-first original/processed cleanup and reconciliation at `bb27f28` |
+| C-008 active-worker deletion fence | RESOLVED | Publication and finalize tombstone fences at `a417095` and `bb27f28` |
+| C-009 segment inventory binding | RESOLVED | Inventory-bound proxy and signed delivery at `88ae38a` |
+| C-010 telemetry governance | RESOLVED | D-013 remains 120 events/minute/client/video with no persisted IP. `a64364a` uses verified-user or signed-anonymous per-client buckets plus a separate short-lived new-identity circuit breaker; API regressions and the full stack passed CI run `34223397162`. |
+| C-011 strict Clerk `azp` | RESOLVED | Configured allowlists reject missing/mismatched `azp`; tests green at `ced7472` |
+| C-012 stale watch copy | RESOLVED | User-safe lifecycle copy and smoke assertions at `d33d456` |
+| Current-head/release evidence | PENDING DOCS-HEAD CI | Runtime/test candidate `a64364ab84708303f356eb74130e7d249ffaf970` passed exact-candidate CI run `34223397162`; the docs-inclusive final head and its exact CI run are recorded in the mutable PR body after qualification. |
+
+Post-MVP product slices present on this branch include public discovery, channels, likes, watch later, Studio, comments, deterministic feeds, recommendation logging, thumbnails, moderation, analytics, captions, subscriptions, history, playlists, rich playback events, expanded media output, chapters, signed redirect delivery, Meilisearch indexing/read fallback, accessibility verification, and caption transcript search.
+
+## PR #12 Reconciliation (2026-09-08)
+
+The rollout branch is reconciled against current `main` at `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`. The final runtime/test candidate is `a64364ab84708303f356eb74130e7d249ffaf970`; focused D-013 policy regressions were introduced at `c5140fc4fe05314dfa29116891831c85802e7341` and the request-path identity-resolution correction landed at `a64364a`.
+
+The candidate addresses the merge-blocking review findings: generic public comment identity; shared visibility predicates; commit-first processing dispatch; canonical manual processing publication; telemetry admission that preserves D-013's 120 events/minute/client/video semantics while separately bounding anonymous identity churn; stable telemetry signing-secret contract; atomic engagement counters; locked playlist positions; and current release evidence.
+
+Telemetry policy is intentionally two-layered and does **not** redefine D-013: each verified user or server-signed anonymous client receives an independent 120 events/minute/video budget. When an anonymous request lacks a valid signed cookie and the server must mint a new client identity, a separate per-video/minute circuit breaker bounds identity creation. The circuit breaker exists only to stop cookie-deletion/rotation from creating unbounded aggregate write capacity; it is not the client event quota. No raw IP or derived IP identifier is stored.
+
+Validation at `a64364a` is attributable to CI run `34223397162`: Compose validation, API tests (including the original adversarial rotation coverage and the new two-client policy coverage), web tests, and the full Sector H end-to-end smoke all passed.
+
+Resolved issue follow-up after docs-head qualification: #1, #3, #4, #5, #6, #7, #8, #9, #10, #13, #20, #21, and #23 are covered by the candidate. Explicitly deferred open work remains #2 (admin authorization is still API-authoritative/partial), #14–#19 (media-output and decoded-complexity hardening), #22 (bounded dependency health checks), and #24 (nonblocking HLS streaming). The two nonblocking review comments about analytics rebuild scalability and container-startup migration are also deferred; neither is a PR #12 merge blocker.
+
+The PR is merge-ready only after the docs-inclusive final head has exact-head green CI and the reopened telemetry/release-evidence review threads are resolved against that final state. This reconciliation does not authorize deployment or production qualification.
+
+## Owner decisions recorded 2026-08-05
+
+- D-011: keep `ATLAS_ADMIN_CLERK_USER_IDS` as the operator identity source.
+- D-012: use asynchronous deletion status with an immediate tombstone and retryable cleanup.
+- D-013: retain telemetry 30 days, cap admission at 120 events/minute/client/video, and persist no IP.
+- D-013 implementation note (2026-09-08): anonymous clients are identified by a stable server-signed cookie for the per-client quota. A separate short-lived new-identity circuit breaker bounds rotation abuse without changing the per-client quota and without storing IP/derived-IP identifiers.
+- CI release evidence will use an explicit Clerk-free smoke mode in CI; production and normal local auth remain Clerk-backed.
+- R-001 (maximum upload size) remains open; agents must not infer a new limit.
+
+These slices do not bypass the remediation sequence. Recommendation V2 and ML remain deferred until the owner explicitly promotes that scope; merge, deployment, and production qualification remain separate approvals.
+
+Plan 1 exit evidence is attributable to implementation commits `bac7a89`, `fd62a20`, `d79b42f`, `ced7472`, and `d33d456`, plus the contract documentation and memory handoff commit recorded below. C-001 remains partial by design: FastAPI is authoritative and the proxy does not independently authorize roles.
+
+Plan 2 exit evidence is attributable to `6bb8064`, atop the generation-fencing commits through `0ca718e`. At that SHA, `make test` passed 115 API, 14 worker, and 5 web tests; `make lint` passed Compose validation, API/worker `compileall`, and web build/lint. `WEB_PORT=3002 WEB_SMOKE_URL=http://127.0.0.1:3002 make smoke` passed API/web/worker health, Alembic upgrade, privacy and API-mediated/API-proxied contract checks, upload through ready/HLS playback including master/rendition/segment/thumbnail, cross-user denial, and corrupt-media failure. The initial default-port smoke was blocked because unrelated `sandlabx-backend` owned `127.0.0.1:3001`; that attempt is not a pass, and no process was stopped. This is repository/local evidence only and does not claim merge, deployment, production, or Plan 3 completion.
+
+Plan 3 implementation evidence is attributable to `5fb8d86` (publication/deletion schema), `8cf082a` (attempt-scoped staging and typed upload inventory), `a417095` (atomic publication), `88ae38a` (inventory-bound playback), `bb27f28` (tombstone-first deletion and reconciliation), and `83229d4` (cursor-batch remediation). The parent-verified exit gate at `83229d4` passed `make lint`, `make test` (130 API, 25 worker, 5 web), `WEB_PORT=3002 WEB_SMOKE_URL=http://127.0.0.1:3002 make smoke`, and `git diff --check`. Plan 3 is COMPLETE. This is repository/local evidence only and does not claim merge, deployment, authenticated browser qualification, or production readiness.
+
+Plan 4 historical exit evidence is attributable to `3021889`, with implementation commits `7e0142a`, `47e54ff`, `ef8b711`, `6ee3323`, and `5494bc9`. PR #12 later hardening discovered and corrected anonymous-identity rotation without changing D-013. The final request-path implementation at `a64364a` passed CI run `34223397162`, including both legacy adversarial coverage and the focused two-client policy tests added at `c5140fc`.
+
+Plan 5 historical release evidence remains preserved in the release audit. For PR #12, the final runtime/test candidate is `a64364ab84708303f356eb74130e7d249ffaf970`; its exact-candidate CI run `34223397162` passed. The docs-inclusive final head and exact-head CI are tracked in `docs/audits/release-evidence-current.md` plus the mutable PR body.
+
+## Sequential Agent Protocol
+
+For each plan:
+
+1. Verify branch, commit, clean/dirty state, and the plan entry gate.
+2. Read the required project documents and only the sector manifests named by the plan.
+3. Execute tasks strictly by numeric ID; do not parallelize tasks that share schema, status, storage, or response contracts.
+4. Use red-test → minimal implementation → focused green-test per task.
+5. Run the plan exit gate and the required whole-stack gate.
+6. Create exactly one new `memory/DDMMYY-SECTOR-short-topic.md` for that agent handoff.
+7. Update this ledger's state and evidence commit. Never silently reorder or broaden a plan.
+
+Minor path drift may be corrected and recorded in the handoff. A schema/interface redesign, missing ruling, failed entry gate, or architecture mismatch is a stop condition: update the plan and obtain owner approval before implementation continues.
+
+## Index Completeness Check
+
+Every markdown file currently under `docs/plans/` appears in the inventory above. Validation must fail if a future plan is added without an inventory row.
+
+Repeatable check:
+
+```sh
+comm -3 \
+  <(find docs/plans -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort) \
+  <(awk -F'`' '/^\|/{if ($2 ~ /\.md$/) print $2}' docs/plans/README.md | sort -u)
+```
+
+Expected: no output.

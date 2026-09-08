@@ -10,7 +10,33 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.db.base import Base
-from app.db.models import PlaybackEvent, User, Video, VideoProcessingJob, VideoRendition
+from app.db.models import (
+    AuditLogEntry,
+    Channel,
+    ChannelSubscription,
+    ContentReport,
+    CreatorDailyMetric,
+    ModerationAction,
+    PlaybackEvent,
+    Playlist,
+    PlaylistItem,
+    ProcessingDispatch,
+    RecommendationRequest,
+    RecommendationResult,
+    User,
+    Video,
+    VideoComment,
+    VideoDailyMetric,
+    VideoImpression,
+    VideoProcessingJob,
+    VideoReaction,
+    VideoRendition,
+    VideoSave,
+    VideoThumbnail,
+    VideoTextTrack,
+    VideoView,
+    WatchHistory,
+)
 
 config = context.config
 

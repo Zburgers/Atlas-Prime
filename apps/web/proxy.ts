@@ -1,6 +1,9 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-export default clerkMiddleware();
+const smokeMode = process.env.ATLAS_CI_SMOKE_MODE === "true";
+
+export default smokeMode ? () => NextResponse.next() : clerkMiddleware();
 
 export const config = {
   matcher: [

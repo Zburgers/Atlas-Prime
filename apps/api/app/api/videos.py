@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
+from datetime import timedelta
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, Path, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, File, HTTPException, Path, Query, Request, Response, UploadFile, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from app.db.models import PlaybackEvent
+from app.db.models import PlaybackEvent, VideoAssetInventory
 from app.api.deps import (
     CurrentUserDep,
     OptionalCurrentUserDep,
@@ -16,6 +23,7 @@ from app.api.deps import (
     SessionDep,
 )
 from app.domain.status import VideoStatus
+from app.schemas.feed import FeedItemResponse, FeedResponse
 from app.schemas.videos import (
     PlaybackEventCreate,
     PlaybackEventResponse,
@@ -24,17 +32,49 @@ from app.schemas.videos import (
     ProcessingStatusResponse,
     UserResponse,
     VideoCreate,
+    VideoEngagementResponse,
+    VideoImpressionCreate,
+    VideoImpressionResponse,
+    VideoListItemResponse,
     VideoListResponse,
     VideoResponse,
     VideoUploadResponse,
+    VideoViewCreate,
+    VideoViewResponse,
     VideoUpdate,
 )
+from app.services import analytics as analytics_service
+from app.services import playback_delivery
+from app.services import feed as feed_service
+from app.services import reactions as reactions_service
 from app.services import uploads as upload_service
 from app.services import videos as video_service
+from app.services import subscriptions as subscription_service
+from app.services import telemetry_admission
+from app.services import telemetry_metrics
 from app.services.storage import HlsObjectNotFoundError
+from app.core import config
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _anonymous_session_token(response: Response, user: object | None, telemetry_session: str | None) -> str | None:
+    """Return session continuity for anonymous telemetry writes only.
+
+    Authenticated writes are scoped by the verified user id and never need
+    the cookie, so a missing telemetry secret fails closed (503) for
+    anonymous writes without affecting signed-in telemetry.
+    """
+    if user is not None:
+        return None
+    try:
+        return telemetry_admission.ensure_session_token(response, telemetry_session)
+    except telemetry_admission.TelemetryAdmissionUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Playback telemetry is temporarily unavailable"},
+        ) from None
 
 PLAYLIST_MEDIA_TYPE = "application/vnd.apple.mpegurl"
 SEGMENT_MEDIA_TYPES = {
@@ -46,6 +86,25 @@ THUMBNAIL_MEDIA_TYPE = "image/jpeg"
 PLAYLIST_CACHE_CONTROL = "private, no-cache"
 THUMBNAIL_CACHE_CONTROL = "private, max-age=300"
 SEGMENT_CACHE_CONTROL = "private, max-age=31536000, immutable"
+
+
+def _thumbnail_url_for(video: object) -> str | None:
+    if getattr(video, "status", None) != VideoStatus.READY.value:
+        return None
+    if not getattr(video, "thumbnail_storage_key", None):
+        return None
+    return f"/videos/{video.id}/thumbnail"
+
+
+def video_list_item(video: object) -> VideoListItemResponse:
+    channel = getattr(video, "channel", None)
+    return VideoListItemResponse.model_validate(video).model_copy(
+        update={
+            "thumbnail_url": _thumbnail_url_for(video),
+            "channel_handle": getattr(channel, "handle", None),
+            "channel_display_name": getattr(channel, "display_name", None),
+        }
+    )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -66,7 +125,7 @@ async def list_videos(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> VideoListResponse:
     items, total = await video_service.list_visible_videos(session, user, page, page_size)
-    return VideoListResponse(items=items, total=total, page=page, page_size=page_size)
+    return VideoListResponse(items=[video_list_item(video) for video in items], total=total, page=page, page_size=page_size)
 
 
 @router.get("/videos/{video_id}", response_model=VideoResponse)
@@ -74,20 +133,62 @@ async def get_video(video_id: UUID, session: SessionDep, user: OptionalCurrentUs
     return await video_service.get_video_for_read(session, user, video_id)
 
 
+@router.get("/videos/{video_id}/related", response_model=FeedResponse)
+async def related_videos(
+    video_id: UUID,
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 10,
+    request_id: Annotated[str | None, Query(max_length=120)] = None,
+) -> FeedResponse:
+    resolved_request_id, ranked_videos, total = await feed_service.related_videos(
+        session, user=user, video_id=video_id, page=page, page_size=page_size, request_id=request_id
+    )
+    return FeedResponse(
+        request_id=resolved_request_id,
+        surface=feed_service.RELATED_SURFACE,
+        algorithm_version=feed_service.RELATED_ALGORITHM_VERSION,
+        items=[FeedItemResponse(request_id=resolved_request_id, surface=feed_service.RELATED_SURFACE, rank=item.rank, score=item.score, reason=item.reason, video=video_list_item(item.video)) for item in ranked_videos],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
 @router.patch("/videos/{video_id}", response_model=VideoResponse)
 async def update_video(video_id: UUID, payload: VideoUpdate, session: SessionDep, user: CurrentUserDep) -> object:
     return await video_service.update_video(session, user, video_id, payload)
 
 
-@router.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_video(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> Response:
-    await video_service.delete_video(session, user, video_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/videos/{video_id}", status_code=status.HTTP_202_ACCEPTED)
+async def delete_video(
+    video_id: UUID,
+    background_tasks: BackgroundTasks,
+    session: SessionDep,
+    user: CurrentUserDep,
+    original_storage: OriginalStorageDep,
+    processed_storage: ProcessedHlsStorageDep,
+) -> dict[str, object]:
+    result = await video_service.delete_video(session, user, video_id)
+    if result.should_schedule:
+        background_tasks.add_task(
+            video_service.cleanup_deleted_video,
+            result.video_id,
+            original_storage,
+            processed_storage,
+        )
+    return {"video_id": result.video_id, "deletion_status": result.deletion_status}
 
 
 @router.post("/videos/{video_id}/process", response_model=ProcessingJobResponse, status_code=status.HTTP_201_CREATED)
-async def process_video(video_id: UUID, session: SessionDep, user: CurrentUserDep) -> object:
-    return await video_service.queue_processing_job(session, user, video_id)
+async def process_video(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+    processing_queue: ProcessingQueueDep,
+) -> object:
+    return await video_service.queue_processing_job_for_owner(session, user, video_id, processing_queue)
 
 
 @router.post("/videos/{video_id}/upload", response_model=VideoUploadResponse)
@@ -110,10 +211,8 @@ async def upload_video(
     return VideoUploadResponse(
         video=result.video,
         processing_job=result.processing_job,
-        storage_key=result.storage_key,
         size_bytes=result.size_bytes,
         content_type=result.content_type,
-        celery_task_id=result.celery_task_id,
     )
 
 
@@ -129,12 +228,37 @@ async def get_processing_status(
 @router.get("/videos/{video_id}/playback", response_model=PlaybackResponse)
 async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUserDep) -> PlaybackResponse:
     video = await video_service.video_with_renditions_for_playback(session, user, video_id)
+    master_playlist_url = f"/videos/{video.id}/hls/master.m3u8" if video.hls_master_storage_key else None
+    if master_playlist_url and config.playback_delivery_mode() == "signed-redirect":
+        if not config.minio_public_endpoint():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"error": "ServiceUnavailable", "message": "Signed playback delivery is not configured"},
+            )
+        try:
+            token = playback_delivery.issue_token(
+                video_id=str(video.id),
+                token_version=video.playback_token_version,
+                viewer_id=str(user.id) if user else None,
+                ttl=timedelta(seconds=config.playback_token_ttl_seconds()),
+            )
+        except playback_delivery.PlaybackTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"error": "ServiceUnavailable", "message": "Signed playback delivery is not configured"},
+            ) from None
+        master_playlist_url = f"/videos/{video.id}/delivery/master.m3u8?token={quote(token, safe='')}"
     return PlaybackResponse(
         video_id=video.id,
         status=VideoStatus(video.status),
-        master_playlist_url=f"/videos/{video.id}/hls/master.m3u8" if video.hls_master_storage_key else None,
-        thumbnail_url=f"/videos/{video.id}/hls/thumbnail.jpg" if video.thumbnail_storage_key else None,
+        master_playlist_url=master_playlist_url,
+        thumbnail_url=f"/videos/{video.id}/thumbnail" if video.thumbnail_storage_key else None,
         renditions=list(video.renditions),
+        text_tracks=[
+            {"id": track.id, "language": track.language, "label": track.label, "kind": track.kind, "default": track.is_default, "url": f"/videos/{video.id}/captions/{track.id}", "created_at": track.created_at}
+            for track in sorted(video.text_tracks, key=lambda item: (not item.is_default, item.language))
+        ],
+        chapters=[{"title": chapter.title, "start_seconds": chapter.start_seconds} for chapter in sorted(video.chapters, key=lambda item: item.position)],
     )
 
 
@@ -142,17 +266,41 @@ async def playback(video_id: UUID, session: SessionDep, user: OptionalCurrentUse
 async def hls_asset(
     video_id: UUID,
     asset_path: Annotated[str, Path(min_length=1)],
+    request: Request,
     session: SessionDep,
     user: OptionalCurrentUserDep,
     storage: ProcessedHlsStorageDep,
 ) -> Response:
-    video = await video_service.video_with_renditions_for_playback(session, user, video_id)
-    storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
+    request_id = request.state.request_id
+    try:
+        video = await video_service.video_with_renditions_for_playback(session, user, video_id)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_403_FORBIDDEN:
+            logger.warning(
+                "sector=G stage=hls_asset_denied request_id=%s video_id=%s user_id=%s asset_path=%s",
+                request_id,
+                video_id,
+                getattr(user, "id", None),
+                asset_path,
+            )
+        raise
+    try:
+        storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            logger.warning(
+                "sector=G stage=hls_asset_missing request_id=%s video_id=%s asset_path=%s",
+                request_id,
+                video_id,
+                asset_path,
+            )
+        raise
     try:
         hls_object = storage.get_hls_object(key=storage_key)
     except HlsObjectNotFoundError:
         logger.warning(
-            "sector=G stage=hls_asset_missing video_id=%s storage_key=%s asset_path=%s",
+            "sector=G stage=hls_asset_missing request_id=%s video_id=%s storage_key=%s asset_path=%s",
+            request_id,
             video_id,
             storage_key,
             asset_path,
@@ -170,25 +318,139 @@ async def hls_asset(
     return Response(content=hls_object.body, media_type=media_type, headers=headers)
 
 
+@router.get("/videos/{video_id}/delivery/{asset_path:path}")
+async def signed_delivery_asset(
+    video_id: UUID,
+    asset_path: Annotated[str, Path(min_length=1)],
+    token: Annotated[str, Query(min_length=1)],
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+    storage: ProcessedHlsStorageDep,
+) -> Response:
+    if not config.minio_public_endpoint():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Signed playback delivery is not configured"},
+        )
+    video = await video_service.video_with_renditions_for_signed_delivery(session, video_id)
+    try:
+        claims = playback_delivery.verify_token(token, video_id=str(video.id), token_version=video.playback_token_version)
+    except playback_delivery.PlaybackTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Unauthorized", "message": "Invalid playback token"},
+        ) from None
+    if claims.viewer_id is not None and (user is None or str(user.id) != claims.viewer_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Forbidden", "message": "Playback token is not valid for this viewer"},
+        )
+
+    storage_key, media_type, cache_control = _resolve_hls_asset(video, asset_path)
+    if media_type == PLAYLIST_MEDIA_TYPE:
+        try:
+            hls_object = storage.get_hls_object(key=storage_key)
+        except HlsObjectNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "NotFound", "message": "HLS asset not found"},
+            ) from None
+        headers = {"Cache-Control": cache_control}
+        if hls_object.etag:
+            headers["ETag"] = hls_object.etag
+        return Response(
+            content=_rewrite_delivery_playlist(hls_object.body, token),
+            media_type=PLAYLIST_MEDIA_TYPE,
+            headers=headers,
+        )
+
+    expires_in = max(1, claims.expires_at - int(time.time()))
+    return RedirectResponse(
+        url=storage.presign_hls_object(key=storage_key, expires_in=expires_in),
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        headers={"Cache-Control": cache_control},
+    )
+
+
 @router.post("/videos/{video_id}/events", response_model=PlaybackEventResponse, status_code=status.HTTP_201_CREATED)
 async def record_playback_event(
     video_id: UUID,
     payload: PlaybackEventCreate,
+    response: Response,
     session: SessionDep,
     user: OptionalCurrentUserDep,
+    telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
 ) -> PlaybackEvent:
     video = await video_service.get_video_for_read(session, user, video_id)
+    anonymous_session_token = _anonymous_session_token(response, user, telemetry_session)
+    requested_video_id = video.id
+    existing = await session.scalar(select(PlaybackEvent).where(PlaybackEvent.event_id == payload.event_id))
+    if existing is not None:
+        if existing.video_id != requested_video_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"error": "Conflict", "message": "Event ID already exists"},
+            )
+        await telemetry_metrics.increment_metric("duplicate")
+        response.status_code = status.HTTP_200_OK
+        return existing
+
+    try:
+        await telemetry_admission.admit_playback_event(
+            video_id=requested_video_id,
+            user_id=getattr(user, "id", None),
+            playback_session_id=payload.playback_session_id,
+            anonymous_session_token=anonymous_session_token,
+        )
+    except telemetry_admission.TelemetryAdmissionLimitExceeded:
+        await telemetry_metrics.increment_metric("rate_limited")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"error": "RateLimited", "message": "Playback telemetry rate limit exceeded"},
+        ) from None
+    except telemetry_admission.TelemetryAdmissionUnavailable as exc:
+        logger.warning(
+            "sector=G stage=telemetry_admission video_id=%s error=%s",
+            requested_video_id,
+            exc.__class__.__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Playback telemetry is temporarily unavailable"},
+        ) from None
+
     event = PlaybackEvent(
         user_id=getattr(user, "id", None),
         video_id=video.id,
+        playback_session_id=payload.playback_session_id,
+        event_id=payload.event_id,
         event_type=payload.event_type,
         position_seconds=payload.position_seconds,
         quality_label=payload.quality_label,
         client_timestamp=payload.client_timestamp,
+        request_id=payload.request_id,
     )
     session.add(event)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        existing = await session.scalar(select(PlaybackEvent).where(PlaybackEvent.event_id == payload.event_id))
+        if existing is None:
+            raise
+        if existing.video_id != requested_video_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"error": "Conflict", "message": "Event ID already exists"},
+            )
+        await telemetry_metrics.increment_metric("duplicate")
+        response.status_code = status.HTTP_200_OK
+        return existing
+    if payload.event_type == "play":
+        await subscription_service.record_history(session, user, video, payload.position_seconds)
     await session.commit()
     await session.refresh(event)
+    await telemetry_metrics.increment_metric("accepted")
     if payload.event_type in {"error", "unsupported"}:
         logger.warning(
             "sector=G stage=playback_event video_id=%s user_id=%s event_type=%s position_seconds=%s quality_label=%s",
@@ -201,6 +463,81 @@ async def record_playback_event(
     return event
 
 
+@router.post("/videos/{video_id}/impressions", response_model=VideoImpressionResponse, status_code=status.HTTP_201_CREATED)
+async def record_video_impression(
+    video_id: UUID,
+    payload: VideoImpressionCreate,
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+    response: Response,
+    telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
+) -> object:
+    await video_service.get_video_for_read(session, user, video_id)
+    token = _anonymous_session_token(response, user, telemetry_session)
+    return await analytics_service.record_impression(session, user, video_id, payload, response, token)
+
+
+@router.post("/videos/{video_id}/views", response_model=VideoViewResponse)
+async def record_video_view(
+    video_id: UUID,
+    payload: VideoViewCreate,
+    response: Response,
+    session: SessionDep,
+    user: OptionalCurrentUserDep,
+    telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
+) -> VideoViewResponse:
+    await video_service.get_video_for_read(session, user, video_id)
+    token = _anonymous_session_token(response, user, telemetry_session)
+    return await analytics_service.record_view(session, user, video_id, payload, response, token)
+
+
+@router.get("/videos/{video_id}/engagement", response_model=VideoEngagementResponse)
+async def get_video_engagement(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.get_engagement(session, user, video_id)
+
+
+@router.post("/videos/{video_id}/like", response_model=VideoEngagementResponse)
+async def like_video(
+    video_id: UUID,
+    response: Response,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.like_video(session, user, video_id, response)
+
+
+@router.delete("/videos/{video_id}/like", response_model=VideoEngagementResponse)
+async def unlike_video(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.unlike_video(session, user, video_id)
+
+
+@router.post("/videos/{video_id}/watch-later", response_model=VideoEngagementResponse)
+async def save_video_for_later(
+    video_id: UUID,
+    response: Response,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.save_video(session, user, video_id, response)
+
+
+@router.delete("/videos/{video_id}/watch-later", response_model=VideoEngagementResponse)
+async def remove_video_from_watch_later(
+    video_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> VideoEngagementResponse:
+    return await reactions_service.remove_saved_video(session, user, video_id)
+
+
 def _resolve_hls_asset(video: object, asset_path: str) -> tuple[str, str, str]:
     if "\\" in asset_path or asset_path.startswith("/") or asset_path.startswith(".") or "//" in asset_path:
         raise _invalid_hls_path()
@@ -208,43 +545,94 @@ def _resolve_hls_asset(video: object, asset_path: str) -> tuple[str, str, str]:
     if any(part in {"", ".", ".."} for part in parts):
         raise _invalid_hls_path()
 
-    root = f"processed/{video.id}/hls/"
-    expected_key = f"{root}{asset_path}"
-
     if asset_path == "master.m3u8":
-        if expected_key != video.hls_master_storage_key:
+        media_type, cache_control = PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
+    elif asset_path == "thumbnail.jpg":
+        media_type, cache_control = THUMBNAIL_MEDIA_TYPE, THUMBNAIL_CACHE_CONTROL
+    else:
+        if len(parts) != 2:
             raise _invalid_hls_path()
-        return expected_key, PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
 
-    if asset_path == "thumbnail.jpg":
-        if expected_key != video.thumbnail_storage_key:
+        rendition_label, filename = parts
+        rendition = next((item for item in video.renditions if item.label == rendition_label), None)
+        if rendition is None:
             raise _invalid_hls_path()
-        return expected_key, THUMBNAIL_MEDIA_TYPE, THUMBNAIL_CACHE_CONTROL
 
-    if len(parts) != 2:
+        if filename == "playlist.m3u8":
+            media_type, cache_control = PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
+        else:
+            suffix = "." + filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
+            if not filename.startswith("segment_") or suffix not in SEGMENT_MEDIA_TYPES:
+                raise _invalid_hls_path()
+            media_type, cache_control = SEGMENT_MEDIA_TYPES[suffix], SEGMENT_CACHE_CONTROL
+
+    generation = _published_hls_generation(video)
+    if generation is None:
+        raise _hls_asset_not_found()
+
+    inventory_asset = next(
+        (
+            asset
+            for asset in getattr(video, "asset_inventory", ())
+            if isinstance(asset, VideoAssetInventory)
+            and asset.generation == generation
+            and asset.relative_path == asset_path
+        ),
+        None,
+    )
+    if inventory_asset is None:
+        raise _hls_asset_not_found()
+
+    relative_path = inventory_asset.relative_path
+    if relative_path != asset_path or not _is_safe_hls_relative_path(relative_path):
         raise _invalid_hls_path()
 
-    rendition_label, filename = parts
-    rendition = next((item for item in video.renditions if item.label == rendition_label), None)
-    if rendition is None:
-        raise _invalid_hls_path()
+    storage_key = f"processed/{video.id}/attempts/{generation}/hls/{relative_path}"
+    return storage_key, media_type, cache_control
 
-    if filename == "playlist.m3u8":
-        if expected_key != rendition.playlist_storage_key:
-            raise _invalid_hls_path()
-        return expected_key, PLAYLIST_MEDIA_TYPE, PLAYLIST_CACHE_CONTROL
 
-    suffix = "." + filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
-    if not filename.startswith("segment_") or suffix not in SEGMENT_MEDIA_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "BadRequest", "message": "Invalid HLS asset path"},
-        )
-    return expected_key, SEGMENT_MEDIA_TYPES[suffix], SEGMENT_CACHE_CONTROL
+def _published_hls_generation(video: object) -> UUID | None:
+    storage_key = getattr(video, "hls_master_storage_key", None)
+    if not isinstance(storage_key, str):
+        return None
+    match = re.fullmatch(
+        rf"processed/{re.escape(str(video.id))}/attempts/"
+        r"(?P<generation>[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/hls/master\.m3u8",
+        storage_key,
+    )
+    if match is None:
+        return None
+    return UUID(match.group("generation"))
+
+
+def _is_safe_hls_relative_path(relative_path: str) -> bool:
+    if "\\" in relative_path or relative_path.startswith("/") or relative_path.startswith(".") or "//" in relative_path:
+        return False
+    return all(part not in {"", ".", ".."} for part in relative_path.split("/"))
+
+
+def _rewrite_delivery_playlist(body: bytes, token: str) -> bytes:
+    encoded_token = quote(token, safe="")
+    rewritten: list[str] = []
+    for line in body.decode("utf-8").splitlines(keepends=True):
+        uri = line.rstrip("\r\n")
+        line_ending = line[len(uri) :]
+        if uri and not uri.startswith("#"):
+            rewritten.append(f"{uri}?token={encoded_token}{line_ending}")
+        else:
+            rewritten.append(line)
+    return "".join(rewritten).encode()
 
 
 def _invalid_hls_path() -> HTTPException:
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail={"error": "BadRequest", "message": "Invalid HLS asset path"},
+    )
+
+
+def _hls_asset_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={"error": "NotFound", "message": "HLS asset not found"},
     )

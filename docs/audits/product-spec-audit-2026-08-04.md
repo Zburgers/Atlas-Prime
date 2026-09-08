@@ -8,6 +8,8 @@ Production revision: `UNVERIFIED`
 Current-head tests executed by this audit: no; connector-only documentation audit  
 Historical validation reviewed: 2026-06-29 memory entry reporting API 28 passed, worker 2 passed, web 1 passed, lint passed, and end-to-end smoke passed
 
+> Scope note added after PR #11 merge: this audit is immutable evidence for `main` commit `dcf8d5c`, not the live status queue for `docs/fullplatform-rollout`. The newer rollout lineage resolves or partially resolves multiple findings. See the handbook reconciliation addendum and `docs/plans/README.md` for current branch state and execution order.
+
 ## Executive verdict
 
 Atlas Prime has a real, integrated MVP vertical slice. Upload, storage, queue dispatch, media processing, HLS publication, API-authorized playback, browser playback, telemetry, local observability, and a Compose smoke harness are implemented.

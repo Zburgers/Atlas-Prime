@@ -9,8 +9,10 @@ These documents define and track Atlas Prime, a learning-oriented, from-scratch 
 3. `docs/audits/product-spec-audit-2026-08-04.md` — adversarial audit establishing the first handbook baseline against authoritative commit `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`.
 4. `docs/01-agent-operating-contract.md` — rules every implementation agent must follow.
 5. `docs/02-owner-evaluation-and-rollout-guide.md` — original dependency order, review gates, and acceptance criteria; use the handbook for current completion status.
-6. `docs/sectors/*.md` — sector-specific implementation manifests.
-7. `memory/README.md` and `memory/_TEMPLATE.md` — required handoff and ADR protocol.
+6. `docs/plans/README.md` — authoritative plan index, current rollout ledger, dependencies, and sequential execution order.
+7. `docs/plans/02-fullplatform-vision.md` — post-MVP architecture and rollout umbrella; it is not the live execution queue.
+8. `docs/sectors/*.md` — sector-specific implementation manifests.
+9. `memory/README.md` and `memory/_TEMPLATE.md` — required handoff and ADR protocol.
 
 ## Source-of-truth contract
 
@@ -24,15 +26,17 @@ These documents define and track Atlas Prime, a learning-oriented, from-scratch 
 
 The upload → MinIO → Celery/FFmpeg → HLS → API proxy → browser playback loop is implemented and has historical local smoke evidence. Current-head tests and any production deployment remain unverified.
 
-The first remediation phase is the authorization and contract boundary:
+The first indexed remediation plan is the remaining authorization and contract boundary:
 
-1. define and enforce a real operator/admin role;
-2. exclude unlisted videos from public discovery;
-3. remove storage keys and queue identifiers from normal API responses;
-4. require a matching Clerk `azp` when authorized parties are configured;
-5. remove stale implementation-phase language from the product UI.
+1. preserve and verify the rollout branch's API admin allowlist and corrected unlisted listing behavior;
+2. remove storage keys and queue identifiers from normal API responses;
+3. require a matching Clerk `azp` when authorized parties are configured;
+4. remove stale implementation-phase language from the product UI;
+5. pass the indexed whole-stack exit gate before upload/job hardening starts.
 
 See the handbook for the complete phased plan covering upload/job idempotency, atomic HLS publication, deletion fencing, storage cleanup, segment integrity, telemetry governance, and release evidence.
+
+The handbook baseline was produced from `main`; the rollout branch contains newer post-MVP implementation. Use `docs/plans/README.md` for the reconciled branch-specific rollout state until those slices merge to `main`.
 
 ## Sector map
 

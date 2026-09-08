@@ -7,6 +7,14 @@ def env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
 
+def build_sha() -> str:
+    return env("ATLAS_BUILD_SHA", "unknown")
+
+
+def build_time() -> str:
+    return env("ATLAS_BUILD_TIME", "unknown")
+
+
 def database_url() -> str:
     raw = env("DATABASE_URL", "postgresql+asyncpg://atlas:atlas@postgres:5432/atlas_prime")
     if raw.startswith("postgresql://"):
@@ -38,12 +46,48 @@ def processed_bucket() -> str:
     return env("MINIO_BUCKET_PROCESSED", "atlas-processed")
 
 
+def playback_delivery_mode() -> str:
+    return env("ATLAS_PLAYBACK_DELIVERY_MODE", "proxy")
+
+
+def playback_token_ttl_seconds() -> int:
+    try:
+        return max(60, min(900, int(env("ATLAS_PLAYBACK_TOKEN_TTL_SECONDS", "300"))))
+    except ValueError:
+        return 300
+
+
+def minio_public_endpoint() -> str:
+    return env("MINIO_PUBLIC_ENDPOINT")
+
+
+def search_backend() -> str:
+    return env("ATLAS_SEARCH_BACKEND", "postgres")
+
+
+def meilisearch_url() -> str:
+    return env("MEILISEARCH_URL", "http://search:7700").rstrip("/")
+
+
+def meilisearch_master_key() -> str:
+    return env("MEILISEARCH_MASTER_KEY")
+
+
 def upload_max_bytes() -> int:
     raw = env("ATLAS_UPLOAD_MAX_BYTES", str(100 * 1024 * 1024))
     try:
         return int(raw)
     except ValueError:
         return 100 * 1024 * 1024
+
+
+def processing_stale_seconds() -> int:
+    """Age after which an operator may explicitly recover a running job."""
+    raw = env("ATLAS_PROCESSING_STALE_SECONDS", "900")
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        return 900
 
 
 def celery_broker_url() -> str:

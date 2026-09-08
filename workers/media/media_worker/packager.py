@@ -46,19 +46,26 @@ class PackagedRendition:
     width: int
     height: int
     target_bitrate: int
+    video_codec: str
+    segment_count: int
+    output_size_bytes: int
     playlist_storage_key: str
 
 
 @dataclass(frozen=True)
 class PackageResult:
+    generation: str
     hls_root: Path
     master_storage_key: str
     thumbnail_storage_key: str
+    generated_thumbnail_storage_keys: list[str]
     renditions: list[PackagedRendition]
 
 
 RENDITION_LADDER = (
+    RenditionPlan(label="1080p", width=1920, height=1080, target_bitrate=5_000_000),
     RenditionPlan(label="720p", width=1280, height=720, target_bitrate=2_800_000),
+    RenditionPlan(label="480p", width=854, height=480, target_bitrate=1_400_000),
     RenditionPlan(label="360p", width=640, height=360, target_bitrate=800_000),
 )
 
@@ -154,7 +161,9 @@ def rendition_plan_for(probe: MediaProbe) -> list[RenditionPlan]:
     ]
 
 
-def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: MediaProbe) -> PackageResult:
+def package_to_hls(
+    *, video_id: str, generation: str, source: Path, output_root: Path, probe: MediaProbe
+) -> PackageResult:
     hls_root = output_root / "hls"
     hls_root.mkdir(parents=True, exist_ok=True)
     plans = rendition_plan_for(probe)
@@ -220,40 +229,42 @@ def package_to_hls(*, video_id: str, source: Path, output_root: Path, probe: Med
             ]
         )
         _run(command)
+        segment_count = len(list(rendition_dir.glob("segment_*.ts")))
+        output_size_bytes = sum(path.stat().st_size for path in rendition_dir.iterdir() if path.is_file())
         renditions.append(
             PackagedRendition(
                 label=plan.label,
                 width=plan.width,
                 height=plan.height,
                 target_bitrate=plan.target_bitrate,
-                playlist_storage_key=f"processed/{video_id}/hls/{plan.label}/playlist.m3u8",
+                video_codec="h264",
+                segment_count=segment_count,
+                output_size_bytes=output_size_bytes,
+                playlist_storage_key=f"processed/{video_id}/attempts/{generation}/hls/{plan.label}/playlist.m3u8",
             )
         )
 
-    thumbnail_path = hls_root / "thumbnail.jpg"
-    _run(
-        [
-            "ffmpeg",
-            "-y",
-            "-ss",
-            "0.1",
-            "-i",
-            str(source),
-            "-frames:v",
-            "1",
-            "-q:v",
-            "3",
-            str(thumbnail_path),
-        ],
-        timeout=30,
-    )
+    thumbnail_offsets = _thumbnail_offsets(probe.duration_seconds)
+    thumbnail_paths = [hls_root / "thumbnail.jpg", *[hls_root / f"thumbnail_{index:02d}.jpg" for index in range(2, len(thumbnail_offsets) + 1)]]
+    for offset, thumbnail_path in zip(thumbnail_offsets, thumbnail_paths, strict=True):
+        _run(["ffmpeg", "-y", "-ss", str(offset), "-i", str(source), "-frames:v", "1", "-q:v", "3", str(thumbnail_path)], timeout=30)
     _write_master_playlist(hls_root / "master.m3u8", renditions)
     return PackageResult(
+        generation=generation,
         hls_root=hls_root,
-        master_storage_key=f"processed/{video_id}/hls/master.m3u8",
-        thumbnail_storage_key=f"processed/{video_id}/hls/thumbnail.jpg",
+        master_storage_key=f"processed/{video_id}/attempts/{generation}/hls/master.m3u8",
+        thumbnail_storage_key=f"processed/{video_id}/attempts/{generation}/hls/thumbnail.jpg",
+        generated_thumbnail_storage_keys=[
+            f"processed/{video_id}/attempts/{generation}/hls/{path.name}" for path in thumbnail_paths
+        ],
         renditions=renditions,
     )
+
+
+def _thumbnail_offsets(duration_seconds: float | None) -> list[float]:
+    if duration_seconds is None or duration_seconds <= 1:
+        return [0.1]
+    return [min(duration_seconds - 0.1, fraction * duration_seconds) for fraction in (0.1, 0.5, 0.9)]
 
 
 def _write_master_playlist(path: Path, renditions: list[PackagedRendition]) -> None:

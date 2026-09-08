@@ -1,21 +1,65 @@
 import os
+import re
+import uuid
 from typing import Any
 
 import asyncpg
 import boto3
+import httpx
 from botocore.config import Config
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from redis.asyncio import from_url as redis_from_url
 
 from app.api.admin import router as admin_router
+from app.api.channels import router as channels_router
+from app.api.captions import router as captions_router
+from app.api.comments import router as comments_router
+from app.api.feed import router as feed_router
+from app.api.library import router as library_router
+from app.api.moderation import router as moderation_router
+from app.api.playlists import router as playlists_router
+from app.api.search import router as search_router
+from app.api.studio import router as studio_router
+from app.api.studio_analytics import admin_router as analytics_admin_router
+from app.api.studio_analytics import studio_router as studio_analytics_router
+from app.api.thumbnails import router as thumbnails_router
 from app.api.videos import router as videos_router
+from app.core import config
 from app.domain.status import CANONICAL_VIDEO_STATUS_VALUES, PRIVACY_VALUES
+from app.schemas.videos import VersionResponse
 
 STATUS_VALUES = CANONICAL_VIDEO_STATUS_VALUES
+# Update this source-controlled attribution value with future migration heads.
+EXPECTED_ALEMBIC_HEAD = "20260824_0019"
 
 app = FastAPI(title="Atlas Prime API", version="0.0.1")
+app.include_router(comments_router)
+app.include_router(captions_router)
 app.include_router(videos_router)
+app.include_router(channels_router)
+app.include_router(search_router)
+app.include_router(feed_router)
+app.include_router(library_router)
+app.include_router(moderation_router)
+app.include_router(playlists_router)
+app.include_router(studio_router)
+app.include_router(studio_analytics_router)
+app.include_router(analytics_admin_router)
+app.include_router(thumbnails_router)
 app.include_router(admin_router)
+
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
+    request_id = request.headers.get("x-request-id", "")
+    if not REQUEST_ID_PATTERN.fullmatch(request_id):
+        request_id = uuid.uuid4().hex
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 def _env(name: str, default: str = "") -> str:
@@ -60,6 +104,16 @@ def _check_minio() -> dict[str, Any]:
     return {"ok": required.issubset(buckets), "buckets": sorted(required)}
 
 
+async def _check_meilisearch() -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            response = await client.get(f"{config.meilisearch_url()}/health")
+            response.raise_for_status()
+            return {"ok": response.json().get("status") == "available"}
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "error": exc.__class__.__name__}
+
+
 @app.get("/healthz/live")
 async def live() -> dict[str, str]:
     return {"status": "ok", "service": "api"}
@@ -79,8 +133,20 @@ async def healthz() -> dict[str, Any]:
         "redis": await _check_redis(),
         "minio": _check_minio(),
     }
+    if config.search_backend() == "meilisearch":
+        checks["search"] = await _check_meilisearch()
     status = "ok" if all(check["ok"] for check in checks.values()) else "degraded"
     return {"status": status, "service": "api", "dependencies": checks}
+
+
+@app.get("/version", response_model=VersionResponse)
+def version() -> VersionResponse:
+    return VersionResponse(
+        build_sha=config.build_sha(),
+        build_time=config.build_time(),
+        app_environment=config.env("APP_ENV", "development"),
+        alembic_head=EXPECTED_ALEMBIC_HEAD,
+    )
 
 
 @app.get("/dev/mvp-contract")

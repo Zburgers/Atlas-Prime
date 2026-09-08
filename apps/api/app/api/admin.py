@@ -2,20 +2,52 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from celery import Celery
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUserDep, ProcessingQueueDep, SessionDep
+from app.api.deps import AdminUserDep, ProcessingQueueDep, SessionDep
 from app.db.models import PlaybackEvent, Video, VideoProcessingJob
 from app.domain.status import VideoStatus
-from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminVideoDebugResponse, VideoResponse
+from app.schemas.feed import RecommendationAdminResponse, RecommendationDebugResponse, RecommendationRequestSummaryResponse
+from app.schemas.search import SearchReindexResponse, SearchResponse
+from app.schemas.videos import AdminJobResponse, AdminOpsResponse, AdminTelemetryResponse, AdminVideoDebugResponse, RenditionDebugResponse, VideoDebugResponse
+from app.services import recommendation_logging, search as search_service
+from app.services import telemetry_metrics
+from app.core import config
+from app.api.search import _video_list_item
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+@router.get("/recommendations", response_model=RecommendationAdminResponse)
+async def recent_recommendations(session: SessionDep, _user: AdminUserDep, limit: int = Query(default=25, ge=1, le=100)) -> RecommendationAdminResponse:
+    items = await recommendation_logging.recent_recommendation_requests(session, limit=limit)
+    return RecommendationAdminResponse(items=[RecommendationRequestSummaryResponse(request_id=item.request_id, surface=item.surface, algorithm_version=item.algorithm_version, total_results=item.total_results, created_at=item.created_at) for item in items])
+
+
+@router.get("/recommendations/{request_id}", response_model=RecommendationDebugResponse)
+async def recommendation_debug(request_id: str, session: SessionDep, _user: AdminUserDep) -> RecommendationDebugResponse:
+    return await recommendation_logging.admin_recommendation_debug(session, request_id=request_id)
+
+
+@router.get("/search", response_model=SearchResponse)
+async def search_debug(session: SessionDep, _user: AdminUserDep, q: str = Query(default="", max_length=120)) -> SearchResponse:
+    normalized = search_service.normalize_search_query(q)
+    items, total = await search_service.search_public_videos(session, normalized, 1, 100)
+    return SearchResponse(query=normalized, items=[_video_list_item(item.video, item.caption_snippet) for item in items], total=total, page=1, page_size=100)
+
+
+@router.post("/search/reindex", response_model=SearchReindexResponse, status_code=status.HTTP_202_ACCEPTED)
+async def reindex_search(_user: AdminUserDep) -> SearchReindexResponse:
+    queue = Celery("atlas_api", broker=config.celery_broker_url(), backend=config.celery_result_backend())
+    task = queue.send_task("search_worker.rebuild_public_video_index", queue="search")
+    return SearchReindexResponse(task_id=str(task.id), queue="search")
+
+
 @router.get("/ops", response_model=AdminOpsResponse)
-async def ops_status(_user: CurrentUserDep, processing_queue: ProcessingQueueDep) -> AdminOpsResponse:
+async def ops_status(_user: AdminUserDep, processing_queue: ProcessingQueueDep) -> AdminOpsResponse:
     worker = processing_queue.inspect_workers()
     queue = processing_queue.inspect_queue()
     status_value = "ok" if worker.ok and queue.ok else "degraded"
@@ -36,10 +68,23 @@ async def ops_status(_user: CurrentUserDep, processing_queue: ProcessingQueueDep
     )
 
 
-@router.get("/videos", response_model=list[VideoResponse])
+@router.get("/telemetry", response_model=AdminTelemetryResponse)
+async def telemetry_status(_user: AdminUserDep) -> AdminTelemetryResponse:
+    metrics = await telemetry_metrics.read_metrics()
+    return AdminTelemetryResponse(
+        status=metrics.status,
+        accepted_event_count=metrics.accepted_event_count,
+        duplicate_event_count=metrics.duplicate_event_count,
+        rate_limited_event_count=metrics.rate_limited_event_count,
+        purged_event_count=metrics.purged_event_count,
+        retention_cutoff=metrics.retention_cutoff,
+    )
+
+
+@router.get("/videos", response_model=list[VideoDebugResponse])
 async def list_admin_videos(
     session: SessionDep,
-    _user: CurrentUserDep,
+    _user: AdminUserDep,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[Video]:
     result = await session.execute(select(Video).order_by(Video.created_at.desc()).limit(limit))
@@ -49,7 +94,7 @@ async def list_admin_videos(
 @router.get("/jobs", response_model=list[AdminJobResponse])
 async def list_jobs(
     session: SessionDep,
-    _user: CurrentUserDep,
+    _user: AdminUserDep,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[AdminJobResponse]:
     result = await session.execute(
@@ -72,7 +117,7 @@ async def list_jobs(
 
 
 @router.get("/videos/{video_id}/debug", response_model=AdminVideoDebugResponse)
-async def video_debug(video_id: UUID, session: SessionDep, _user: CurrentUserDep) -> AdminVideoDebugResponse:
+async def video_debug(video_id: UUID, session: SessionDep, _user: AdminUserDep) -> AdminVideoDebugResponse:
     result = await session.execute(
         select(Video)
         .options(selectinload(Video.renditions), selectinload(Video.processing_jobs))
@@ -91,8 +136,8 @@ async def video_debug(video_id: UUID, session: SessionDep, _user: CurrentUserDep
         .limit(25)
     )
     return AdminVideoDebugResponse(
-        video=VideoResponse.model_validate(video),
-        renditions=list(video.renditions),
+        video=VideoDebugResponse.model_validate(video),
+        renditions=[RenditionDebugResponse.model_validate(rendition) for rendition in video.renditions],
         processing_jobs=sorted(video.processing_jobs, key=lambda job: job.created_at, reverse=True),
         recent_playback_events=list(events_result.scalars()),
     )

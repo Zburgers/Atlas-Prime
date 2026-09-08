@@ -30,6 +30,9 @@ jobs:
         run: docker compose run --rm --build web-test npm --workspace apps/web test
 
       - name: Run Sector H smoke
+        env:
+          ATLAS_CI_SMOKE_MODE: "true"
+          ATLAS_ALLOW_DEV_AUTH_HEADERS: "true"
         run: ./scripts/smoke-devex.sh
 
       - name: Show compose logs on failure

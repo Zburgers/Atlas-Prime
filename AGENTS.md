@@ -19,10 +19,13 @@ read spec
 
 Every agent must read these documents before making code changes:
 
+0. `skills/atlasprime-repo-orientation/SKILL.md` - Repo-local map of services, entry points, functioning systems, contracts, and safe validation routes
 1. `docs/00-ground-truth-mvp-spec.md` - Canonical MVP scope and video lifecycle
 2. `docs/01-agent-operating-contract.md` - Rules every implementation agent must follow
 3. `memory/README.md` - Memory folder protocol
 4. `memory/_TEMPLATE.md` - Required handoff entry format
+
+The repo-local orientation skill is required for fresh agents. Read its linked `references/system-map.md`, then reconcile the map with `git status`, current code, and current runtime evidence before making changes.
 
 For implementation-specific contracts, read your sector manifest under `docs/sectors/`.
 

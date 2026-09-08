@@ -10,10 +10,23 @@ export function AppHeader() {
         Atlas Prime
       </Link>
       <nav aria-label="Primary navigation">
-        <Link href="/">Library</Link>
+        <Link href="/">Home</Link>
+        <Link href="/trending">Trending</Link>
+        <Link href="/search">Search</Link>
+        <Link href="/subscriptions">Subscriptions</Link>
+        <Link href="/library">Library</Link>
+        <Link href="/playlists/new">Playlists</Link>
+        <Link href="/studio">Studio</Link>
         <Link href="/upload">Upload</Link>
         <Link href="/admin">Admin</Link>
       </nav>
+      <form className="headerSearch" action="/search" method="get" role="search">
+        <label className="srOnly" htmlFor="header-search">
+          Search public videos
+        </label>
+        <input id="header-search" name="q" placeholder="Search videos" type="search" />
+        <button type="submit">Search</button>
+      </form>
       <div className="headerAuth">
         <Show when="signed-out">
           <SignInButton mode="modal">

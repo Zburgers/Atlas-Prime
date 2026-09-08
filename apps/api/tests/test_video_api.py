@@ -1,21 +1,28 @@
 from collections.abc import AsyncGenerator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Event
 from typing import BinaryIO
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.models import Video, VideoRendition
+from app.db.models import ProcessingDispatch, Video, VideoAssetInventory, VideoProcessingJob, VideoRendition
 from app.db.session import get_session
 from app.api.deps import get_original_storage, get_processed_hls_storage, get_processing_queue
 from app.domain.status import RenditionStatus, VideoPrivacy, VideoStatus
 from app.main import app
 from app.services.processing_queue import QueueInspection, WorkerInspection
+from app.services import telemetry_admission
+from app.services.processing_dispatch import publish_pending_processing_job
+from app.services import videos as video_service
 from app.services.storage import HlsObject, HlsObjectNotFoundError, StoredObject, original_storage_key
+from app.services.uploads import _mark_video_failed
 
 
 @pytest.fixture()
@@ -65,6 +72,13 @@ def _minimal_mp4(payload: bytes = b"atlas") -> bytes:
     return b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + payload
 
 
+PUBLISHED_GENERATION = UUID("12345678-1234-4234-8234-1234567890ab")
+
+
+def _hls_key(video_id: str, relative_path: str, generation: UUID = PUBLISHED_GENERATION) -> str:
+    return f"processed/{video_id}/attempts/{generation}/hls/{relative_path}"
+
+
 class FakeOriginalStorage:
     def __init__(self) -> None:
         self.objects: list[tuple[str, bytes, str]] = []
@@ -89,11 +103,19 @@ class FakeProcessingQueue:
     def __init__(self) -> None:
         self.jobs: list[dict[str, str]] = []
 
-    def enqueue_video_processing(self, *, video_id: UUID, job_id: UUID, original_storage_key: str) -> str:
+    def enqueue_video_processing(
+        self,
+        *,
+        video_id: UUID,
+        job_id: UUID,
+        generation: UUID,
+        original_storage_key: str,
+    ) -> str:
         self.jobs.append(
             {
                 "video_id": str(video_id),
                 "job_id": str(job_id),
+                "generation": str(generation),
                 "original_storage_key": original_storage_key,
             }
         )
@@ -114,6 +136,7 @@ class FakeProcessedHlsStorage:
     def __init__(self, objects: dict[str, tuple[bytes, str]] | None = None) -> None:
         self.objects = objects or {}
         self.requests: list[str] = []
+        self.presigned_requests: list[tuple[str, int]] = []
 
     def get_hls_object(self, *, key: str) -> HlsObject:
         self.requests.append(key)
@@ -128,6 +151,10 @@ class FakeProcessedHlsStorage:
             content_length=len(body),
             etag='"test-etag"',
         )
+
+    def presign_hls_object(self, *, key: str, expires_in: int) -> str:
+        self.presigned_requests.append((key, expires_in))
+        return self.presigned_url
 
 
 def _install_upload_fakes(client: TestClient) -> tuple[FakeOriginalStorage, FakeProcessingQueue]:
@@ -151,8 +178,8 @@ def _mark_video_ready(client: TestClient, *, video_id: str, privacy: VideoPrivac
             assert video is not None
             video.status = VideoStatus.READY.value
             video.privacy = privacy.value
-            video.hls_master_storage_key = f"processed/{video_id}/hls/master.m3u8"
-            video.thumbnail_storage_key = f"processed/{video_id}/hls/thumbnail.jpg"
+            video.hls_master_storage_key = _hls_key(video_id, "master.m3u8")
+            video.thumbnail_storage_key = _hls_key(video_id, "thumbnail.jpg")
             session.add(
                 VideoRendition(
                     video_id=video.id,
@@ -160,10 +187,26 @@ def _mark_video_ready(client: TestClient, *, video_id: str, privacy: VideoPrivac
                     width=640,
                     height=360,
                     target_bitrate=800_000,
-                    playlist_storage_key=f"processed/{video_id}/hls/360p/playlist.m3u8",
+                    playlist_storage_key=_hls_key(video_id, "360p/playlist.m3u8"),
                     status=RenditionStatus.READY.value,
                 )
             )
+            for relative_path, content_type, size_bytes in (
+                ("master.m3u8", "application/vnd.apple.mpegurl", 8),
+                ("thumbnail.jpg", "image/jpeg", 3),
+                ("360p/playlist.m3u8", "application/vnd.apple.mpegurl", 8),
+                ("360p/segment_000.ts", "video/mp2t", 12),
+            ):
+                session.add(
+                    VideoAssetInventory(
+                        video_id=video.id,
+                        generation=PUBLISHED_GENERATION,
+                        relative_path=relative_path,
+                        content_type=content_type,
+                        size_bytes=size_bytes,
+                        sha256="a" * 64,
+                    )
+                )
             await session.commit()
 
     asyncio.run(mark_ready())
@@ -172,6 +215,15 @@ def _mark_video_ready(client: TestClient, *, video_id: str, privacy: VideoPrivac
 @pytest.fixture(autouse=True)
 def enable_dev_auth_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLAS_ALLOW_DEV_AUTH_HEADERS", "true")
+    monkeypatch.setenv("ATLAS_ADMIN_CLERK_USER_IDS", "operator")
+
+
+@pytest.fixture(autouse=True)
+def fake_telemetry_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def admit(**_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(telemetry_admission, "admit_playback_event", admit)
 
 
 def test_create_video_defaults_to_private_draft(client: TestClient) -> None:
@@ -185,15 +237,124 @@ def test_create_video_defaults_to_private_draft(client: TestClient) -> None:
     assert body["owner_id"]
 
 
+def test_deleting_a_video_removes_original_and_processed_storage(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    class LifecycleOriginalStorage:
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
+        def delete_original(self, *, key: str) -> None:
+            self.deleted.append(key)
+
+    class LifecycleProcessedStorage:
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
+        def delete_video_tree(self, *, video_id: UUID) -> int:
+            self.deleted.append(str(video_id))
+            return 4
+
+    original = LifecycleOriginalStorage()
+    processed = LifecycleProcessedStorage()
+    app.dependency_overrides[get_original_storage] = lambda: original
+    app.dependency_overrides[get_processed_hls_storage] = lambda: processed
+    video = client.post("/videos", headers=_headers("owner"), json={"title": "Delete me"}).json()
+
+    import asyncio
+
+    async def set_original() -> None:
+        async with app.state.test_session_maker() as session:
+            item = await session.get(Video, UUID(video["id"]))
+            assert item is not None
+            item.original_storage_key = f"originals/{video['id']}/source.mp4"
+            await session.commit()
+
+    asyncio.run(set_original())
+    monkeypatch.setattr(video_service, "SessionLocal", app.state.test_session_maker)
+    response = client.delete(f"/videos/{video['id']}", headers=_headers("owner"))
+
+    assert response.status_code == 202
+    assert response.json() == {"video_id": video["id"], "deletion_status": "pending"}
+    assert original.deleted == [f"originals/{video['id']}/source.mp4"]
+    assert processed.deleted == [video["id"]]
+
+
 def test_private_video_is_owner_only(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Private cut"})
     video_id = created.json()["id"]
+
+    assert "original_storage_key" not in created.json()
+    assert "hls_master_storage_key" not in created.json()
+    assert "thumbnail_storage_key" not in created.json()
 
     owner_response = client.get(f"/videos/{video_id}", headers=_headers("owner"))
     other_response = client.get(f"/videos/{video_id}", headers=_headers("other"))
 
     assert owner_response.status_code == 200
+    assert "original_storage_key" not in owner_response.json()
+    assert "hls_master_storage_key" not in owner_response.json()
+    assert "thumbnail_storage_key" not in owner_response.json()
     assert other_response.status_code == 403
+
+
+def test_public_video_list_excludes_private_unlisted_and_non_ready_videos(client: TestClient) -> None:
+    public_video = client.post("/videos", headers=_headers("owner"), json={"title": "Public ready"}).json()
+    private_video = client.post("/videos", headers=_headers("owner"), json={"title": "Private ready"}).json()
+    unlisted_video = client.post("/videos", headers=_headers("owner"), json={"title": "Unlisted ready"}).json()
+    public_draft = client.post("/videos", headers=_headers("owner"), json={"title": "Public draft"}).json()
+
+    _mark_video_ready(client, video_id=public_video["id"], privacy=VideoPrivacy.PUBLIC)
+    _mark_video_ready(client, video_id=private_video["id"], privacy=VideoPrivacy.PRIVATE)
+    _mark_video_ready(client, video_id=unlisted_video["id"], privacy=VideoPrivacy.UNLISTED)
+    client.patch(f"/videos/{public_draft['id']}", headers=_headers("owner"), json={"privacy": "public"})
+
+    response = client.get("/videos")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["title"] for item in body["items"]] == ["Public ready"]
+    item = body["items"][0]
+    assert item["thumbnail_url"] == f"/videos/{public_video['id']}/thumbnail"
+    assert "thumbnail_storage_key" not in item
+    assert "hls_master_storage_key" not in item
+
+
+def test_unlisted_ready_video_is_directly_readable_but_not_publicly_listed(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Share by link"}).json()
+    _mark_video_ready(client, video_id=created["id"], privacy=VideoPrivacy.UNLISTED)
+
+    list_response = client.get("/videos")
+    other_list_response = client.get("/videos", headers=_headers("viewer"))
+    direct_response = client.get(f"/videos/{created['id']}")
+    other_direct_response = client.get(f"/videos/{created['id']}", headers=_headers("viewer"))
+    other_playback_response = client.get(f"/videos/{created['id']}/playback", headers=_headers("viewer"))
+
+    assert list_response.status_code == 200
+    assert list_response.json()["items"] == []
+    assert other_list_response.status_code == 200
+    assert other_list_response.json()["items"] == []
+    assert direct_response.status_code == 200
+    assert direct_response.json()["privacy"] == "unlisted"
+    assert other_direct_response.status_code == 200
+    assert other_direct_response.json()["privacy"] == "unlisted"
+    assert other_playback_response.status_code == 200
+    assert other_playback_response.json()["master_playlist_url"] == f"/videos/{created['id']}/hls/master.m3u8"
+
+
+def test_signed_in_video_list_includes_owned_drafts_and_public_ready_videos(client: TestClient) -> None:
+    own_draft = client.post("/videos", headers=_headers("owner"), json={"title": "Own draft"}).json()
+    public_video = client.post("/videos", headers=_headers("other"), json={"title": "Other public"}).json()
+    other_private = client.post("/videos", headers=_headers("other"), json={"title": "Other private"}).json()
+    _mark_video_ready(client, video_id=public_video["id"], privacy=VideoPrivacy.PUBLIC)
+    _mark_video_ready(client, video_id=other_private["id"], privacy=VideoPrivacy.PRIVATE)
+
+    response = client.get("/videos", headers=_headers("owner"))
+
+    assert response.status_code == 200
+    titles = {item["title"] for item in response.json()["items"]}
+    assert titles == {"Own draft", "Other public"}
+    own_item = next(item for item in response.json()["items"] if item["id"] == own_draft["id"])
+    assert own_item["status"] == "draft"
 
 
 def test_auth_required_without_clerk_token_or_enabled_dev_header(
@@ -259,6 +420,75 @@ def test_process_requires_uploaded_state(client: TestClient) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"]["details"]["required_status"] == "uploaded"
+
+
+def test_process_publishes_the_canonical_job(client: TestClient) -> None:
+    _storage, queue = _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers(), json={"title": "Manual processing"})
+    video_id = created.json()["id"]
+    import asyncio
+
+    async def mark_uploaded() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            video.status = VideoStatus.UPLOADED.value
+            video.original_storage_key = f"originals/{video_id}/source.mp4"
+            await session.commit()
+
+    asyncio.run(mark_uploaded())
+
+    response = client.post(f"/videos/{video_id}/process", headers=_headers())
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "queued"
+    assert queue.jobs[0]["job_id"] == response.json()["id"]
+
+
+def test_upload_keeps_committed_job_reconcilable_when_broker_is_down(client: TestClient) -> None:
+    class FailingQueue(FakeProcessingQueue):
+        def enqueue_video_processing(self, **_kwargs: object) -> str:
+            raise RuntimeError("broker unavailable")
+
+    storage = FakeOriginalStorage()
+    queue = FailingQueue()
+    app.dependency_overrides[get_original_storage] = lambda: storage
+    app.dependency_overrides[get_processing_queue] = lambda: queue
+    created = client.post("/videos", headers=_headers(), json={"title": "Reconcile me"})
+    video_id = created.json()["id"]
+
+    response = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers(),
+        files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+    )
+
+    assert response.status_code == 503
+
+    import asyncio
+
+    async def load_dispatch() -> tuple[Video, VideoProcessingJob, ProcessingDispatch]:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            job = await session.scalar(select(VideoProcessingJob).where(VideoProcessingJob.video_id == UUID(video_id)))
+            dispatch = await session.scalar(select(ProcessingDispatch).where(ProcessingDispatch.job_id == job.id))
+            assert video is not None and job is not None and dispatch is not None
+            return video, job, dispatch
+
+    video, job, dispatch = asyncio.run(load_dispatch())
+    assert video.status == VideoStatus.QUEUED.value
+    assert job.status == "queued"
+    assert dispatch.status == "pending"
+    assert dispatch.attempt_count == 1
+
+    working_queue = FakeProcessingQueue()
+
+    async def reconcile() -> str:
+        async with app.state.test_session_maker() as session:
+            return await publish_pending_processing_job(session, job.id, working_queue)
+
+    assert asyncio.run(reconcile()) == "task-123"
+    assert len(working_queue.jobs) == 1
 
 
 def test_upload_requires_video_owner(client: TestClient) -> None:
@@ -329,48 +559,166 @@ def test_upload_stores_original_and_queues_processing(client: TestClient) -> Non
     body = response.json()
     expected_key = f"originals/{video_id}/source.mp4"
     assert body["video"]["status"] == "queued"
-    assert body["video"]["original_storage_key"] == expected_key
+    assert "original_storage_key" not in body["video"]
     assert body["processing_job"]["status"] == "queued"
-    assert body["storage_key"] == expected_key
+    assert body["processing_job"]["stage"] == "queued"
+    assert "storage_key" not in body
     assert body["size_bytes"] == len(data)
     assert body["content_type"] == "video/mp4"
-    assert body["celery_task_id"] == "task-123"
+    assert "celery_task_id" not in body
+    import asyncio
+
+    async def load_persisted_generation() -> tuple[str, str]:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None and video.active_processing_generation is not None
+            job = await session.get(VideoProcessingJob, UUID(body["processing_job"]["id"]))
+            assert job is not None
+            return str(video.active_processing_generation), str(job.generation)
+
+    active_generation, job_generation = asyncio.run(load_persisted_generation())
+    assert active_generation == job_generation == queue.jobs[0]["generation"]
     assert storage.objects == [(expected_key, data, "video/mp4")]
     assert queue.jobs == [
         {
             "video_id": video_id,
             "job_id": body["processing_job"]["id"],
+            "generation": active_generation,
             "original_storage_key": expected_key,
         }
     ]
+
+
+def test_upload_claim_is_atomic_and_rejects_concurrent_uploading_state(client: TestClient) -> None:
+    class BlockingStorage(FakeOriginalStorage):
+        entered = Event()
+        release = Event()
+
+        def put_original(self, **kwargs: object) -> StoredObject:
+            self.entered.set()
+            assert self.release.wait(timeout=5)
+            return super().put_original(**kwargs)  # type: ignore[arg-type]
+
+    storage = BlockingStorage()
+    queue = FakeProcessingQueue()
+    app.dependency_overrides[get_original_storage] = lambda: storage
+    app.dependency_overrides[get_processing_queue] = lambda: queue
+    created = client.post("/videos", headers=_headers(), json={"title": "Concurrent upload"})
+    video_id = created.json()["id"]
+
+    def upload() -> object:
+        # Each request gets its own TestClient portal so the ASGI calls can
+        # overlap; the first remains inside storage while the second claims.
+        with TestClient(app) as concurrent_client:
+            return concurrent_client.post(
+                f"/videos/{video_id}/upload",
+                headers=_headers(),
+                files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(upload)
+        assert storage.entered.wait(timeout=5)
+        second = pool.submit(upload)
+        rejected = second.result(timeout=5)
+        storage.release.set()
+        accepted = first.result(timeout=5)
+
+    assert accepted.status_code == 200
+    assert rejected.status_code == 409
+    assert storage.objects and len(storage.objects) == 1
+    assert len(queue.jobs) == 1
+
+
+def test_stale_upload_failure_cannot_mutate_new_generation(client: TestClient) -> None:
+    _storage, _queue = _install_upload_fakes(client)
+    created = client.post("/videos", headers=_headers(), json={"title": "Generation fence"})
+    video_id = created.json()["id"]
+    upload = client.post(
+        f"/videos/{video_id}/upload",
+        headers=_headers(),
+        files={"file": ("lesson.mp4", _minimal_mp4(), "video/mp4")},
+    )
+    assert upload.status_code == 200
+
+    import asyncio
+    from uuid import uuid4
+
+    async def apply_stale_failure() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            current_generation = video.active_processing_generation
+            video.active_processing_generation = uuid4()
+            await session.commit()
+            await _mark_video_failed(
+                session,
+                video,
+                "STALE_FAILURE",
+                "must not apply",
+                generation=current_generation,
+            )
+
+    asyncio.run(apply_stale_failure())
+    status_response = client.get(f"/videos/{video_id}/processing-status", headers=_headers())
+    assert status_response.status_code == 200
+    assert status_response.json()["video_status"] == "queued"
+    assert status_response.json()["failure_code"] is None
 
 
 def test_playback_metadata_and_hls_master_are_served_for_owner(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
-    master_key = f"processed/{video_id}/hls/master.m3u8"
+    master_key = _hls_key(video_id, "master.m3u8")
     storage = FakeProcessedHlsStorage({master_key: (b"#EXTM3U\n", "application/vnd.apple.mpegurl")})
     _install_hls_fake(storage)
 
     metadata = client.get(f"/videos/{video_id}/playback", headers=_headers("owner"))
-    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("owner"))
+    response = client.get(
+        f"/videos/{video_id}/hls/master.m3u8",
+        headers={**_headers("owner"), "X-Request-ID": "hls-master-1"},
+    )
 
     assert metadata.status_code == 200
     assert metadata.json()["master_playlist_url"] == f"/videos/{video_id}/hls/master.m3u8"
+    assert metadata.json()["renditions"]
+    assert all("playlist_storage_key" not in rendition for rendition in metadata.json()["renditions"])
     assert response.status_code == 200
     assert response.content == b"#EXTM3U\n"
     assert response.headers["content-type"].startswith("application/vnd.apple.mpegurl")
+    assert response.headers["x-request-id"] == "hls-master-1"
     assert response.headers["cache-control"] == "private, no-cache"
     assert response.headers["etag"] == '"test-etag"'
     assert storage.requests == [master_key]
+
+
+def test_playback_returns_signed_master_url_when_delivery_mode_is_enabled(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.playback_delivery import verify_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_DELIVERY_MODE", "signed-redirect")
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Signed playback"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+
+    response = client.get(f"/videos/{video_id}/playback", headers=_headers("owner"))
+
+    assert response.status_code == 200
+    url = response.json()["master_playlist_url"]
+    assert url.startswith(f"/videos/{video_id}/delivery/master.m3u8?token=")
+    token = url.split("?token=", maxsplit=1)[1]
+    assert verify_token(token, video_id=video_id, token_version=1).viewer_id is not None
 
 
 def test_hls_segment_uses_immutable_cache_headers(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Ready segment"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
-    segment_key = f"processed/{video_id}/hls/360p/segment_000.ts"
+    segment_key = _hls_key(video_id, "360p/segment_000.ts")
     storage = FakeProcessedHlsStorage({segment_key: (b"segment-data", "video/mp2t")})
     _install_hls_fake(storage)
 
@@ -383,24 +731,159 @@ def test_hls_segment_uses_immutable_cache_headers(client: TestClient) -> None:
     assert storage.requests == [segment_key]
 
 
-def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient) -> None:
+def test_signed_delivery_redirects_segment_bytes_to_minio(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Redirect segment"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    token = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
+
+    response = client.get(
+        f"/videos/{video_id}/delivery/360p/segment_000.ts?token={token}",
+        headers=_headers("owner"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == storage.presigned_url
+    assert storage.presigned_requests[0][0] == _hls_key(video_id, "360p/segment_000.ts")
+
+
+def test_signed_delivery_rewrites_playlist_uris_with_the_token(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Rewrite playlist"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    master_key = _hls_key(video_id, "master.m3u8")
+    rendition_key = _hls_key(video_id, "360p/playlist.m3u8")
+    storage = FakeProcessedHlsStorage(
+        {
+            master_key: (b"#EXTM3U\n360p/playlist.m3u8\n", "application/vnd.apple.mpegurl"),
+            rendition_key: (b"#EXTM3U\nsegment_000.ts\n", "application/vnd.apple.mpegurl"),
+        }
+    )
+    _install_hls_fake(storage)
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    token = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
+
+    master_response = client.get(f"/videos/{video_id}/delivery/master.m3u8?token={token}", headers=_headers("owner"))
+    rendition_response = client.get(f"/videos/{video_id}/delivery/360p/playlist.m3u8?token={token}", headers=_headers("owner"))
+
+    assert master_response.status_code == 200
+    assert master_response.text == f"#EXTM3U\n360p/playlist.m3u8?token={token}\n"
+    assert rendition_response.status_code == 200
+    assert rendition_response.text == f"#EXTM3U\nsegment_000.ts?token={token}\n"
+    assert storage.requests == [master_key, rendition_key]
+
+
+def test_signed_delivery_rejects_expired_or_rotated_private_tokens(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Protected delivery"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    expired = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=-1))
+    active = issue_token(video_id=video_id, token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
+
+    expired_response = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={expired}", headers=_headers("owner"), follow_redirects=False)
+    assert client.post(f"/studio/videos/{video_id}/rotate-playback-token", headers=_headers("owner")).status_code == 200
+    rotated_response = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={active}", headers=_headers("owner"), follow_redirects=False)
+
+    assert expired_response.status_code == 401
+    assert rotated_response.status_code == 401
+    assert storage.presigned_requests == []
+
+
+def test_signed_delivery_enforces_private_viewer_binding(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.playback_delivery import issue_token
+
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    private = client.post("/videos", headers=_headers("owner"), json={"title": "Private token"}).json()
+    _mark_video_ready(client, video_id=private["id"])
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+    owner_id = client.get("/me", headers=_headers("owner")).json()["id"]
+    private_token = issue_token(video_id=private["id"], token_version=1, viewer_id=owner_id, ttl=__import__("datetime").timedelta(seconds=60))
+
+    mint_denied = client.get(f"/videos/{private['id']}/playback", headers=_headers("other"))
+    private_delivery = client.get(
+        f"/videos/{private['id']}/delivery/360p/segment_000.ts?token={private_token}",
+        headers=_headers("other"),
+        follow_redirects=False,
+    )
+
+    assert mint_denied.status_code == 403
+    assert private_delivery.status_code == 403
+    assert storage.presigned_requests == []
+
+
+@pytest.mark.parametrize("privacy", [VideoPrivacy.PUBLIC, VideoPrivacy.UNLISTED])
+def test_signed_delivery_allows_anonymous_public_and_unlisted_playback(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, privacy: VideoPrivacy
+) -> None:
+    monkeypatch.setenv("ATLAS_PLAYBACK_DELIVERY_MODE", "signed-redirect")
+    monkeypatch.setenv("ATLAS_PLAYBACK_TOKEN_SECRET", "test-secret-that-is-long-enough-for-hmac")
+    monkeypatch.setenv("MINIO_PUBLIC_ENDPOINT", "https://media.example")
+    created = client.post("/videos", headers=_headers("owner"), json={"title": f"{privacy.value} token"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id, privacy=privacy)
+    storage = FakeProcessedHlsStorage()
+    storage.presigned_url = "https://media.example/segment.ts?signature=ok"
+    _install_hls_fake(storage)
+
+    playback = client.get(f"/videos/{video_id}/playback")
+    token = playback.json()["master_playlist_url"].split("?token=", maxsplit=1)[1]
+    delivery = client.get(f"/videos/{video_id}/delivery/360p/segment_000.ts?token={token}", follow_redirects=False)
+
+    assert playback.status_code == 200
+    assert delivery.status_code == 307
+    assert storage.presigned_requests[0][0] == _hls_key(video_id, "360p/segment_000.ts")
+
+
+def test_private_hls_asset_is_denied_to_non_owner_before_storage_read(client: TestClient, caplog) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Private ready"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
     storage = FakeProcessedHlsStorage()
     _install_hls_fake(storage)
 
-    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("other"))
+    with caplog.at_level("WARNING"):
+        response = client.get(
+            f"/videos/{video_id}/hls/master.m3u8",
+            headers={**_headers("other"), "X-Request-ID": "hls-denied-1"},
+        )
 
     assert response.status_code == 403
+    assert response.headers["x-request-id"] == "hls-denied-1"
     assert storage.requests == []
+    assert "stage=hls_asset_denied request_id=hls-denied-1" in caplog.text
 
 
 def test_public_hls_asset_can_be_served_without_identity(client: TestClient) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Public ready"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id, privacy=VideoPrivacy.PUBLIC)
-    thumbnail_key = f"processed/{video_id}/hls/thumbnail.jpg"
+    thumbnail_key = _hls_key(video_id, "thumbnail.jpg")
     storage = FakeProcessedHlsStorage({thumbnail_key: (b"jpg", "image/jpeg")})
     _install_hls_fake(storage)
 
@@ -427,18 +910,76 @@ def test_hls_path_traversal_is_rejected_before_storage_read(client: TestClient) 
     assert storage.requests == []
 
 
-def test_hls_unknown_allowed_asset_returns_404(client: TestClient) -> None:
+def test_hls_unknown_allowed_asset_returns_404(client: TestClient, caplog) -> None:
     created = client.post("/videos", headers=_headers("owner"), json={"title": "Missing object"})
     video_id = created.json()["id"]
     _mark_video_ready(client, video_id=video_id)
-    storage = FakeProcessedHlsStorage()
+    storage = FakeProcessedHlsStorage({_hls_key(video_id, "360p/segment_999.ts"): (b"stale-object", "video/mp2t")})
     _install_hls_fake(storage)
 
-    response = client.get(f"/videos/{video_id}/hls/360p/segment_999.ts", headers=_headers("owner"))
+    with caplog.at_level("WARNING"):
+        response = client.get(
+            f"/videos/{video_id}/hls/360p/segment_999.ts",
+            headers={**_headers("owner"), "X-Request-ID": "hls-missing-1"},
+        )
 
     assert response.status_code == 404
     assert response.json()["detail"]["message"] == "HLS asset not found"
-    assert storage.requests == [f"processed/{video_id}/hls/360p/segment_999.ts"]
+    assert response.headers["x-request-id"] == "hls-missing-1"
+    assert storage.requests == []
+    assert "stage=hls_asset_missing request_id=hls-missing-1" in caplog.text
+
+
+def test_hls_old_generation_is_not_served_even_when_object_exists(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Old generation"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+    old_generation = UUID("87654321-4321-4321-8321-ba0987654321")
+
+    async def publish_old_generation() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            video.hls_master_storage_key = _hls_key(video_id, "master.m3u8", old_generation)
+            await session.commit()
+
+    import asyncio
+
+    asyncio.run(publish_old_generation())
+    storage = FakeProcessedHlsStorage({_hls_key(video_id, "master.m3u8", old_generation): (b"old", "application/vnd.apple.mpegurl")})
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("owner"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["message"] == "HLS asset not found"
+    assert storage.requests == []
+
+
+def test_legacy_hls_publication_key_is_unbound_and_not_served(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Legacy publication"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+
+    async def publish_legacy_key() -> None:
+        async with app.state.test_session_maker() as session:
+            video = await session.get(Video, UUID(video_id))
+            assert video is not None
+            video.hls_master_storage_key = f"processed/{video_id}/hls/master.m3u8"
+            await session.commit()
+
+    import asyncio
+
+    asyncio.run(publish_legacy_key())
+    legacy_key = f"processed/{video_id}/hls/master.m3u8"
+    storage = FakeProcessedHlsStorage({legacy_key: (b"legacy", "application/vnd.apple.mpegurl")})
+    _install_hls_fake(storage)
+
+    response = client.get(f"/videos/{video_id}/hls/master.m3u8", headers=_headers("owner"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["message"] == "HLS asset not found"
+    assert storage.requests == []
 
 
 def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> None:
@@ -450,6 +991,8 @@ def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> 
         f"/videos/{video_id}/events",
         headers=_headers("owner"),
         json={
+            "playback_session_id": str(uuid4()),
+            "event_id": str(uuid4()),
             "event_type": "error",
             "position_seconds": "1.25",
             "quality_label": "manifestLoadError",
@@ -462,6 +1005,21 @@ def test_playback_event_is_recorded_for_accessible_video(client: TestClient) -> 
     assert body["video_id"] == video_id
     assert body["event_type"] == "error"
     assert body["quality_label"] == "manifestLoadError"
+
+
+def test_playback_progress_event_is_recorded_for_accessible_video(client: TestClient) -> None:
+    created = client.post("/videos", headers=_headers("owner"), json={"title": "Progress telemetry"})
+    video_id = created.json()["id"]
+    _mark_video_ready(client, video_id=video_id)
+
+    response = client.post(
+        f"/videos/{video_id}/events",
+        headers=_headers("owner"),
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "progress_ping", "position_seconds": 15},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["event_type"] == "progress_ping"
 
 
 def test_admin_ops_reports_worker_and_queue_health(client: TestClient) -> None:
@@ -508,7 +1066,7 @@ def test_admin_debug_includes_jobs_renditions_and_playback_events(client: TestCl
     client.post(
         f"/videos/{video_id}/events",
         headers=_headers("owner"),
-        json={"event_type": "player_ready", "quality_label": "hls.js"},
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "player_ready", "quality_label": "hls.js"},
     )
 
     jobs = client.get("/admin/jobs", headers=_headers("operator"))
@@ -521,6 +1079,8 @@ def test_admin_debug_includes_jobs_renditions_and_playback_events(client: TestCl
     assert debug.status_code == 200
     body = debug.json()
     assert body["video"]["id"] == video_id
+    assert body["video"]["original_storage_key"] == f"originals/{video_id}/source.mp4"
     assert body["processing_jobs"][0]["status"] == "queued"
     assert body["renditions"][0]["label"] == "360p"
+    assert body["renditions"][0]["playlist_storage_key"].endswith("360p/playlist.m3u8")
     assert body["recent_playback_events"][0]["event_type"] == "player_ready"

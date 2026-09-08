@@ -2,76 +2,304 @@
 
 import { useAuth } from "@clerk/nextjs";
 import Hls from "hls.js";
+import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusPanel } from "../../components/status-ui";
 import {
   ApiError,
   apiRequest,
   backendAssetUrl,
+  buildPlaybackEventRequest,
+  createPlaybackTelemetryUuid,
+  type Comment,
+  type CommentListResponse,
+  type FeedResponse,
   type PlaybackResponse,
   type ProcessingStatus,
   type Video,
+  type VideoEngagementResponse,
+  type VideoViewResponse,
 } from "../../components/video-api";
 
-export function WatchClient({ videoId }: { videoId: string }) {
+const VIEW_COUNT_THRESHOLD_SECONDS = 5;
+const PROGRESS_PING_INTERVAL_SECONDS = 15;
+const MAX_TELEMETRY_ATTEMPTS = 2;
+
+function playbackStatusGuidance(status: ProcessingStatus["video_status"] | Video["status"] | null | undefined) {
+  switch (status) {
+    case "queued":
+      return "Your video is queued for processing. Playback will be available when processing finishes.";
+    case "probing":
+    case "processing":
+      return "Your video is being processed. Playback will be available when processing finishes.";
+    case "ready":
+      return "Playback is ready. Refresh if the player does not appear.";
+    case "failed":
+      return "This video could not be processed. Check the status details for the available next step.";
+    default:
+      return "Playback is not ready yet. Refresh this page after processing completes.";
+  }
+}
+
+export function WatchClient({ videoId, recommendationRequestId }: { videoId: string; recommendationRequestId?: string }) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playbackSessionId = useMemo(() => {
+    // The route key intentionally starts a new telemetry session for a new video.
+    void videoId;
+    return createPlaybackTelemetryUuid();
+  }, [videoId]);
+  const viewSessionIdRef = useRef(createPlaybackSessionId());
+  const viewRecordedRef = useRef(false);
+  const viewRequestPendingRef = useRef(false);
+  const lastProgressPingRef = useRef(0);
+  const bufferingRef = useRef(false);
   const [video, setVideo] = useState<Video | null>(null);
+  const [engagement, setEngagement] = useState<VideoEngagementResponse | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentTotal, setCommentTotal] = useState(0);
+  const [commentBody, setCommentBody] = useState("");
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
+  const [related, setRelated] = useState<FeedResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [engagementBusy, setEngagementBusy] = useState(false);
+  const [commentsBusy, setCommentsBusy] = useState(false);
+  const [engagementError, setEngagementError] = useState<string | null>(null);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
 
   const recordPlaybackEvent = useCallback(
-    async (event_type: "player_ready" | "error" | "unsupported" | "play" | "pause", quality_label?: string) => {
+    async (event_type: "player_ready" | "error" | "unsupported" | "play" | "pause" | "seek" | "progress_ping" | "buffer_start" | "buffer_end" | "ended" | "quality_change", quality_label?: string) => {
+      const event_id = createPlaybackTelemetryUuid();
       try {
         const token = isSignedIn ? await getToken() : null;
-        await apiRequest(`/videos/${videoId}/events`, {
-          token,
-          method: "POST",
-          body: {
+        const body = buildPlaybackEventRequest(
+          { playback_session_id: playbackSessionId, event_id },
+          {
             event_type,
             position_seconds: videoRef.current?.currentTime ?? null,
             quality_label,
             client_timestamp: new Date().toISOString(),
+            request_id: recommendationRequestId ?? null,
           },
-        });
+        );
+
+        for (let attempt = 0; attempt < MAX_TELEMETRY_ATTEMPTS; attempt += 1) {
+          try {
+            await apiRequest(`/videos/${videoId}/events`, {
+              token,
+              method: "POST",
+              body,
+            });
+            return;
+          } catch (error) {
+            if (attempt + 1 >= MAX_TELEMETRY_ATTEMPTS || !shouldRetryPlaybackTelemetry(error)) {
+              return;
+            }
+          }
+        }
       } catch {
         // Playback telemetry should never interrupt viewing.
       }
     },
-    [getToken, isSignedIn, videoId],
+    [getToken, isSignedIn, playbackSessionId, recommendationRequestId, videoId],
+  );
+
+  const recordView = useCallback(async () => {
+    const element = videoRef.current;
+    if (!element || viewRecordedRef.current || viewRequestPendingRef.current) {
+      return;
+    }
+    if (element.currentTime < VIEW_COUNT_THRESHOLD_SECONDS) {
+      return;
+    }
+
+    viewRequestPendingRef.current = true;
+    try {
+      const token = isSignedIn ? await getToken() : null;
+      const result = await apiRequest<VideoViewResponse>(`/videos/${videoId}/views`, {
+        token,
+        method: "POST",
+        body: {
+          session_id: viewSessionIdRef.current,
+          position_seconds: Number(element.currentTime.toFixed(3)),
+          request_id: recommendationRequestId ?? null,
+        },
+      });
+      viewRecordedRef.current = true;
+      setVideo((current) => (current ? { ...current, view_count: result.view_count } : current));
+    } catch {
+      // View telemetry should never interrupt playback.
+    } finally {
+      viewRequestPendingRef.current = false;
+    }
+  }, [getToken, isSignedIn, recommendationRequestId, videoId]);
+
+  const recordProgress = useCallback(() => {
+    const position = videoRef.current?.currentTime ?? 0;
+    if (position < lastProgressPingRef.current + PROGRESS_PING_INTERVAL_SECONDS) {
+      return;
+    }
+    lastProgressPingRef.current = position;
+    void recordPlaybackEvent("progress_ping");
+  }, [recordPlaybackEvent]);
+
+  const applyEngagement = useCallback((result: VideoEngagementResponse) => {
+    setEngagement(result);
+    setVideo((current) => (current ? { ...current, like_count: result.like_count } : current));
+  }, []);
+
+  const updateEngagement = useCallback(
+    async (path: string, method: "POST" | "DELETE") => {
+      if (!isSignedIn) {
+        return;
+      }
+      setEngagementBusy(true);
+      setEngagementError(null);
+      try {
+        const token = await getToken();
+        applyEngagement(await apiRequest<VideoEngagementResponse>(path, { token, method }));
+      } catch (err) {
+        setEngagementError(err instanceof ApiError ? err.message : "Unable to update engagement.");
+      } finally {
+        setEngagementBusy(false);
+      }
+    },
+    [applyEngagement, getToken, isSignedIn],
+  );
+
+  const toggleLike = useCallback(async () => {
+    const method = engagement?.liked ? "DELETE" : "POST";
+    await updateEngagement(`/videos/${videoId}/like`, method);
+  }, [engagement?.liked, updateEngagement, videoId]);
+
+  const toggleWatchLater = useCallback(async () => {
+    const method = engagement?.saved_to_watch_later ? "DELETE" : "POST";
+    await updateEngagement(`/videos/${videoId}/watch-later`, method);
+  }, [engagement?.saved_to_watch_later, updateEngagement, videoId]);
+
+  const applyComments = useCallback((result: CommentListResponse) => {
+    setComments(result.items);
+    setCommentTotal(result.total);
+  }, []);
+
+  const loadComments = useCallback(async () => {
+    setCommentsError(null);
+    try {
+      const token = isSignedIn ? await getToken() : null;
+      applyComments(await apiRequest<CommentListResponse>(`/videos/${videoId}/comments`, { token }));
+    } catch (err) {
+      setComments([]);
+      setCommentTotal(0);
+      setCommentsError(err instanceof ApiError ? err.message : "Unable to load comments.");
+    }
+  }, [applyComments, getToken, isSignedIn, videoId]);
+
+  const submitComment = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const body = commentBody.trim();
+      if (!body || !isSignedIn) {
+        return;
+      }
+      setCommentsBusy(true);
+      setCommentsError(null);
+      try {
+        const token = await getToken();
+        const created = await apiRequest<Comment>(`/videos/${videoId}/comments`, {
+          token,
+          method: "POST",
+          body: { body },
+        });
+        setComments((current) => [...current, created]);
+        setCommentTotal((current) => current + 1);
+        setCommentBody("");
+      } catch (err) {
+        setCommentsError(err instanceof ApiError ? err.message : "Unable to post comment.");
+      } finally {
+        setCommentsBusy(false);
+      }
+    },
+    [commentBody, getToken, isSignedIn, videoId],
+  );
+
+  const deleteComment = useCallback(
+    async (commentId: string) => {
+      if (!isSignedIn) {
+        return;
+      }
+      setCommentsBusy(true);
+      setCommentsError(null);
+      try {
+        const token = await getToken();
+        await apiRequest<void>(`/comments/${commentId}`, { token, method: "DELETE" });
+        setComments((current) => current.filter((comment) => comment.id !== commentId));
+        setCommentTotal((current) => Math.max(0, current - 1));
+      } catch (err) {
+        setCommentsError(err instanceof ApiError ? err.message : "Unable to delete comment.");
+      } finally {
+        setCommentsBusy(false);
+      }
+    },
+    [getToken, isSignedIn],
   );
 
   const loadVideo = useCallback(async () => {
     setError(null);
+    setEngagementError(null);
+    setCommentsError(null);
     try {
       const token = isSignedIn ? await getToken() : null;
-      const [videoResponse, statusResponse] = await Promise.all([
+      const [videoResponse, statusResponse, commentsResponse] = await Promise.all([
         apiRequest<Video>(`/videos/${videoId}`, { token }),
         apiRequest<ProcessingStatus>(`/videos/${videoId}/processing-status`, { token }),
+        apiRequest<CommentListResponse>(`/videos/${videoId}/comments`, { token }),
       ]);
       setVideo(videoResponse);
       setStatus(statusResponse);
+      applyComments(commentsResponse);
       if (statusResponse.video_status === "ready") {
         setPlayback(await apiRequest<PlaybackResponse>(`/videos/${videoId}/playback`, { token }));
       } else {
         setPlayback(null);
+      }
+      if (isSignedIn) {
+        try {
+          applyEngagement(await apiRequest<VideoEngagementResponse>(`/videos/${videoId}/engagement`, { token }));
+        } catch {
+          setEngagement(null);
+        }
+      } else {
+        setEngagement(null);
+      }
+      try {
+        setRelated(await apiRequest<FeedResponse>(`/videos/${videoId}/related`, { token }));
+      } catch {
+        setRelated(null);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to load this video.");
     } finally {
       setLoading(false);
     }
-  }, [getToken, isSignedIn, videoId]);
+  }, [applyComments, applyEngagement, getToken, isSignedIn, videoId]);
 
   useEffect(() => {
     if (isLoaded) {
       queueMicrotask(() => void loadVideo());
     }
   }, [isLoaded, loadVideo]);
+
+  useEffect(() => {
+    viewSessionIdRef.current = createPlaybackSessionId();
+    viewRecordedRef.current = false;
+    viewRequestPendingRef.current = false;
+    lastProgressPingRef.current = 0;
+    bufferingRef.current = false;
+  }, [videoId]);
 
   useEffect(() => {
     if (!playback?.master_playlist_url || !videoRef.current) {
@@ -104,9 +332,13 @@ export function WatchClient({ videoId }: { videoId: string }) {
     });
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (data.fatal) {
-        setPlayerError("Playback failed while loading the API-owned HLS stream.");
+        setPlayerError("Playback failed while loading the video stream.");
         void recordPlaybackEvent("error", data.type);
       }
+    });
+    hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+      const level = hls.levels[data.level];
+      void recordPlaybackEvent("quality_change", level?.height ? `${level.height}p` : undefined);
     });
 
     return () => hls.destroy();
@@ -127,7 +359,7 @@ export function WatchClient({ videoId }: { videoId: string }) {
 
         <div className="playerFrame">
           {loading ? <p>Loading video...</p> : null}
-          {error ? <p className="errorText">{error}</p> : null}
+          {error ? <p className="errorText" role="alert">{error}</p> : null}
           {!loading && !error && playback?.master_playlist_url ? (
             <video
               ref={videoRef}
@@ -136,20 +368,120 @@ export function WatchClient({ videoId }: { videoId: string }) {
               poster={playback.thumbnail_url ? backendAssetUrl(playback.thumbnail_url) : undefined}
               onPause={() => void recordPlaybackEvent("pause")}
               onPlay={() => void recordPlaybackEvent("play")}
-            />
+              onSeeking={() => void recordPlaybackEvent("seek")}
+              onEnded={() => void recordPlaybackEvent("ended")}
+              onWaiting={() => {
+                bufferingRef.current = true;
+                void recordPlaybackEvent("buffer_start");
+              }}
+              onCanPlay={() => {
+                if (bufferingRef.current) {
+                  bufferingRef.current = false;
+                  void recordPlaybackEvent("buffer_end");
+                }
+              }}
+              onTimeUpdate={() => {
+                void recordView();
+                recordProgress();
+              }}
+            >
+              {playback.text_tracks.map((track) => (
+                <track
+                  key={track.id}
+                  kind="captions"
+                  src={backendAssetUrl(track.url)}
+                  srcLang={track.language}
+                  label={track.label}
+                  default={track.default}
+                />
+              ))}
+            </video>
           ) : null}
           {!loading && !error && !playback?.master_playlist_url ? (
             <div className="playerPlaceholder">
               <h2>Playback is not ready</h2>
-              <p>D/E still own HLS generation and proxy delivery. This page will play once the API returns a ready playlist.</p>
+              <p>{playbackStatusGuidance(status?.video_status ?? video?.status)}</p>
             </div>
           ) : null}
         </div>
-        {playerError ? <p className="errorText">{playerError}</p> : null}
+        {playerError ? <p className="errorText" role="alert">{playerError}</p> : null}
+
+        <section className="commentThread" aria-labelledby="comments-heading">
+          <div className="sectionHeader">
+            <div>
+              <p className="eyebrow">Comments</p>
+              <h2 id="comments-heading">{formatCount(commentTotal, "comment")}</h2>
+            </div>
+            <button className="secondaryButton" type="button" onClick={loadComments} disabled={commentsBusy || loading}>
+              Refresh
+            </button>
+          </div>
+
+          {isSignedIn ? (
+            <form className="commentForm" onSubmit={submitComment}>
+              <label>
+                <span>Comment</span>
+                <textarea
+                  maxLength={2000}
+                  value={commentBody}
+                  onChange={(event) => setCommentBody(event.target.value)}
+                  placeholder="Add a comment"
+                />
+              </label>
+              <button type="submit" disabled={commentsBusy || commentBody.trim().length === 0}>
+                Post comment
+              </button>
+            </form>
+          ) : (
+            <p className="muted">Sign in to comment.</p>
+          )}
+
+          {commentsError ? <p className="errorText" role="alert">{commentsError}</p> : null}
+          {comments.length === 0 && !commentsError ? <p className="muted">No comments yet.</p> : null}
+          <div className="commentList">
+            {comments.map((comment) => (
+              <article className="commentItem" key={comment.id}>
+                <div>
+                  <p className="commentAuthor">{comment.author_display_name}</p>
+                  <p>{comment.body}</p>
+                  <p className="metaLine">{formatDate(comment.created_at)}</p>
+                </div>
+                {comment.owned_by_current_user ? (
+                  <button
+                    className="secondaryButton"
+                    type="button"
+                    onClick={() => void deleteComment(comment.id)}
+                    disabled={commentsBusy}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
       </section>
 
       <aside className="sideStack">
         {video ? <StatusPanel video={video} processingStatus={status} /> : null}
+        {video ? (
+          <section className="surface compactSurface">
+            <p className="eyebrow">Engagement</p>
+            <div className="engagementActions">
+              <button className="secondaryButton" type="button" onClick={toggleLike} disabled={!isSignedIn || engagementBusy}>
+                {engagement?.liked ? "Liked" : "Like"}
+              </button>
+              <button className="secondaryButton" type="button" onClick={toggleWatchLater} disabled={!isSignedIn || engagementBusy}>
+                {engagement?.saved_to_watch_later ? "Saved" : "Watch later"}
+              </button>
+            </div>
+            <p className="metaLine">
+              {formatCount(video.like_count, "like")}
+              {!isSignedIn ? " / sign in to save or like" : ""}
+            </p>
+            {engagementError ? <p className="errorText" role="alert">{engagementError}</p> : null}
+          </section>
+        ) : null}
         {video ? (
           <section className="surface compactSurface">
             <p className="eyebrow">Metadata</p>
@@ -157,6 +489,10 @@ export function WatchClient({ videoId }: { videoId: string }) {
               <div>
                 <dt>Privacy</dt>
                 <dd>{video.privacy}</dd>
+              </div>
+              <div>
+                <dt>Views</dt>
+                <dd>{formatViewCount(video.view_count)}</dd>
               </div>
               <div>
                 <dt>Resolution</dt>
@@ -176,7 +512,63 @@ export function WatchClient({ videoId }: { videoId: string }) {
             </Link>
           </section>
         ) : null}
+        {related?.items.length ? <RelatedVideos items={related.items} /> : null}
       </aside>
     </div>
   );
+}
+
+function RelatedVideos({ items }: { items: FeedResponse["items"] }) {
+  return (
+    <section className="surface compactSurface relatedVideos" aria-labelledby="related-heading">
+      <p className="eyebrow">Watch next</p>
+      <h2 id="related-heading">Related videos</h2>
+      <div className="relatedVideoList">
+        {items.map((item) => (
+          <article className="relatedVideo" key={item.video.id}>
+            <Link className="relatedThumbnail" href={`/watch/${item.video.id}?request_id=${encodeURIComponent(item.request_id)}`} aria-label={`Open ${item.video.title}`}>
+              {item.video.thumbnail_url ? <Image alt="" fill sizes="160px" src={backendAssetUrl(item.video.thumbnail_url)} unoptimized /> : <span />}
+            </Link>
+            <div>
+              <h3><Link href={`/watch/${item.video.id}?request_id=${encodeURIComponent(item.request_id)}`}>{item.video.title}</Link></h3>
+              <p className="metaLine">{item.video.channel_display_name ?? "Channel pending"}</p>
+              <p className="metaLine">{formatViewCount(item.video.view_count)} / {item.reason}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function createPlaybackSessionId() {
+  const randomId =
+    typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `watch-${randomId}`;
+}
+
+function shouldRetryPlaybackTelemetry(error: unknown) {
+  if (!(error instanceof ApiError)) {
+    return true;
+  }
+  return error.status === 408 || error.status === 429 || error.status >= 500;
+}
+
+function formatViewCount(value: number) {
+  return `${value.toLocaleString()} ${value === 1 ? "view" : "views"}`;
+}
+
+function formatCount(value: number, label: string) {
+  return `${value.toLocaleString()} ${label}${value === 1 ? "" : "s"}`;
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

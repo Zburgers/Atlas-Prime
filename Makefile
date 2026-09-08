@@ -14,6 +14,12 @@ help:
 		'  make worker-test Run media worker tests' \
 		'  make lint       Run lightweight syntax/config checks' \
 		'  make smoke      Run Sector H stack smoke check' \
+		'  make analytics-rebuild DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD  Rebuild daily analytics' \
+		'  make telemetry-purge [ARGS="--apply"]  Purge raw playback events (dry run by default)' \
+		'  make search-reindex  Enqueue a public-video search index rebuild' \
+			'  make processing-recover-stale [ARGS="--apply"]  Inspect/fail abandoned processing jobs (dry run by default)' \
+			'  make processing-reconcile [ARGS="--limit 100"]  Republish committed but unpublished media jobs' \
+		'  make deletion-reconcile  Reconcile pending/running/failed video tombstones' \
 		'  make fixture    Generate a tiny legal MP4 fixture with ffmpeg'
 
 .PHONY: env
@@ -64,3 +70,28 @@ smoke:
 .PHONY: fixture
 fixture:
 	./scripts/generate-sample-media.sh
+
+.PHONY: analytics-rebuild
+analytics-rebuild: env
+	@test -n "$(DATE_FROM)" && test -n "$(DATE_TO)" || (echo "Set DATE_FROM and DATE_TO as YYYY-MM-DD"; exit 2)
+	$(COMPOSE) run --rm --build api python -m app.commands.rebuild_analytics --date-from "$(DATE_FROM)" --date-to "$(DATE_TO)"
+
+.PHONY: telemetry-purge
+telemetry-purge: env
+	$(COMPOSE) run --rm --build api python -m app.commands.purge_telemetry $(ARGS)
+
+.PHONY: search-reindex
+search-reindex: env
+	$(COMPOSE) exec search-worker celery -A app.worker.search call search_worker.rebuild_public_video_index
+
+.PHONY: processing-recover-stale
+processing-recover-stale: env
+	$(COMPOSE) run --rm --build api python -m app.commands.recover_stale_jobs $(ARGS)
+
+.PHONY: processing-reconcile
+processing-reconcile: env
+	$(COMPOSE) run --rm --build api python -m app.commands.reconcile_processing_dispatches $(ARGS)
+
+.PHONY: deletion-reconcile
+deletion-reconcile: env
+	$(COMPOSE) run --rm --build api python -m app.commands.reconcile_deletions --apply

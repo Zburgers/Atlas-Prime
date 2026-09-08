@@ -23,7 +23,7 @@ def test_verify_clerk_session_token_validates_issuer_and_authorized_party(
             "sub": "user_clerk_123",
             "sid": "sess_123",
             "iss": issuer,
-            "azp": "http://localhost:3001",
+            "azp": "http://localhost:3001/",
             "iat": now,
             "nbf": now - 5,
             "exp": now + 300,
@@ -86,3 +86,108 @@ def test_verify_clerk_session_token_rejects_wrong_authorized_party(
 
     with pytest.raises(auth_service.InvalidAuthTokenError):
         asyncio.run(auth_service.verify_clerk_session_token(token))
+
+
+def test_verify_clerk_session_token_rejects_missing_authorized_party(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key = _private_key()
+    issuer = "https://example.clerk.accounts.dev"
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "sub": "user_clerk_123",
+            "iss": issuer,
+            "iat": now,
+            "nbf": now - 5,
+            "exp": now + 300,
+        },
+        private_key,
+        algorithm="RS256",
+        headers={"kid": "test-key"},
+    )
+
+    class StubSigningKey:
+        key = private_key.public_key()
+
+    class StubJwkClient:
+        def get_signing_key_from_jwt(self, _token: str) -> StubSigningKey:
+            return StubSigningKey()
+
+    monkeypatch.setenv("CLERK_ISSUER", issuer)
+    monkeypatch.setenv("CLERK_AUTHORIZED_PARTIES", "http://localhost:3001")
+    monkeypatch.setattr(auth_service, "_jwk_client", lambda _url: StubJwkClient())
+
+    with pytest.raises(auth_service.InvalidAuthTokenError):
+        asyncio.run(auth_service.verify_clerk_session_token(token))
+
+
+def test_verify_clerk_session_token_accepts_normalized_authorized_party(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key = _private_key()
+    issuer = "https://example.clerk.accounts.dev"
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "sub": "user_clerk_123",
+            "iss": issuer,
+            "azp": "  http://localhost:3001/  ",
+            "iat": now,
+            "nbf": now - 5,
+            "exp": now + 300,
+        },
+        private_key,
+        algorithm="RS256",
+        headers={"kid": "test-key"},
+    )
+
+    class StubSigningKey:
+        key = private_key.public_key()
+
+    class StubJwkClient:
+        def get_signing_key_from_jwt(self, _token: str) -> StubSigningKey:
+            return StubSigningKey()
+
+    monkeypatch.setenv("CLERK_ISSUER", issuer)
+    monkeypatch.setenv("CLERK_AUTHORIZED_PARTIES", "http://localhost:3001/")
+    monkeypatch.setattr(auth_service, "_jwk_client", lambda _url: StubJwkClient())
+
+    claims = asyncio.run(auth_service.verify_clerk_session_token(token))
+
+    assert claims.clerk_user_id == "user_clerk_123"
+
+
+def test_verify_clerk_session_token_allows_missing_authorized_party_when_allowlist_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key = _private_key()
+    issuer = "https://example.clerk.accounts.dev"
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "sub": "user_clerk_123",
+            "iss": issuer,
+            "iat": now,
+            "nbf": now - 5,
+            "exp": now + 300,
+        },
+        private_key,
+        algorithm="RS256",
+        headers={"kid": "test-key"},
+    )
+
+    class StubSigningKey:
+        key = private_key.public_key()
+
+    class StubJwkClient:
+        def get_signing_key_from_jwt(self, _token: str) -> StubSigningKey:
+            return StubSigningKey()
+
+    monkeypatch.setenv("CLERK_ISSUER", issuer)
+    monkeypatch.setenv("CLERK_AUTHORIZED_PARTIES", "")
+    monkeypatch.setattr(auth_service, "_jwk_client", lambda _url: StubJwkClient())
+
+    claims = asyncio.run(auth_service.verify_clerk_session_token(token))
+
+    assert claims.clerk_user_id == "user_clerk_123"

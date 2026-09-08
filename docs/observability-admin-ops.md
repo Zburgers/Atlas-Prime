@@ -2,6 +2,12 @@
 
 Sector G adds a protected MVP debugging surface for the local demo.
 
+## Operator identity and data boundary
+
+The operator surface is available only to Clerk identities listed in the comma-separated `ATLAS_ADMIN_CLERK_USER_IDS` environment variable. FastAPI's `AdminUserDep` is the authoritative check for every `/admin` route; the Next.js proxy forwards credentials but does not grant operator access.
+
+Product/creator responses are intentionally redacted. Storage keys, rendition playlist keys, and queue/task identifiers are available only through the protected operator/debug schemas returned by `/admin/videos` and `/admin/videos/{video_id}/debug`. Do not copy these fields into normal product API types or expose them in user-facing errors.
+
 ## Admin portal
 
 - Open `http://localhost:3001/admin`.
@@ -19,6 +25,8 @@ The portal calls protected API endpoints through the existing same-origin Next.j
 - `GET /admin/jobs` lists recent processing jobs with video failure context.
 - `GET /admin/videos/{video_id}/debug` returns video metadata, renditions, processing jobs, and recent playback events.
 - `POST /videos/{video_id}/events` records player events for accessible videos.
+
+Non-admin authenticated callers receive `403` from the operator endpoints, including operations, jobs, videos, video debug, search, recommendation diagnostics, analytics rebuild, and moderation administration. A valid Clerk session alone is insufficient.
 
 ## Debug flow
 
