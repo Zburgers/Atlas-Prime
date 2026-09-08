@@ -7,7 +7,6 @@ import logging
 import os
 import secrets
 import time
-from contextvars import ContextVar
 from collections.abc import Callable
 from datetime import datetime, timezone
 from uuid import UUID
@@ -33,7 +32,11 @@ SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 ANONYMOUS_SCOPE = "anon"
 _PROCESS_SECRET = secrets.token_bytes(32)
 _FALLBACK_WARNED = False
-_SESSION_CONTEXT: ContextVar[tuple[str, bool] | None] = ContextVar("atlas_telemetry_session_context", default=None)
+# Tokens placed here have passed through the actual HTTP session resolver.
+# Direct/internal callers that merely manufacture a token do not become a
+# trusted client identity. Values are (was_minted_on_last_resolution, touched).
+_RESOLVED_SESSION_TOKENS: dict[str, tuple[bool, float]] = {}
+_RESOLVED_SESSION_CONTEXT_TTL_SECONDS = 300
 _SEEN_MINT_WINDOWS: dict[str, int] = {}
 
 
@@ -75,20 +78,34 @@ def verify_session_token(token: str, *, now: int | None = None) -> bool:
     return hmac.compare_digest(signature, _signature(payload))
 
 
+def _prune_resolved_session_tokens(*, now: float | None = None) -> None:
+    cutoff = (time.monotonic() if now is None else now) - _RESOLVED_SESSION_CONTEXT_TTL_SECONDS
+    for token, (_minted, touched) in list(_RESOLVED_SESSION_TOKENS.items()):
+        if touched < cutoff:
+            _RESOLVED_SESSION_TOKENS.pop(token, None)
+
+
 def ensure_session_token(response: Response, cookie_value: str | None) -> str:
-    """Return a stable anonymous-client token and remember whether this request minted it.
+    """Resolve the anonymous HTTP client identity and note whether it was minted.
 
     The signed token is the approved anonymous *client* identity for the
     120-events/minute/client/video budget. A separate server-side identity-mint
     circuit breaker is consumed only when this function has to mint a new
     anonymous identity, so discarding cookies cannot create unbounded write
     capacity while legitimate clients keep independent budgets.
+
+    Resolution state is process-local and short-lived. It is not an admission
+    counter or durable identity store; it only distinguishes tokens that came
+    through the real HTTP resolver from tokens constructed by direct tests or
+    internal callers. Redis remains authoritative for quota enforcement.
     """
+    touched = time.monotonic()
+    _prune_resolved_session_tokens(now=touched)
     if cookie_value and verify_session_token(cookie_value):
-        _SESSION_CONTEXT.set((cookie_value, False))
+        _RESOLVED_SESSION_TOKENS[cookie_value] = (False, touched)
         return cookie_value
     token = issue_session_token()
-    _SESSION_CONTEXT.set((token, True))
+    _RESOLVED_SESSION_TOKENS[token] = (True, touched)
     response.set_cookie(
         SESSION_COOKIE_NAME,
         token,
@@ -124,11 +141,11 @@ def _signature(payload: str) -> str:
     return base64.urlsafe_b64encode(hmac.new(secret, payload.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
 
 
-def _request_session_context(token: str | None) -> tuple[str, bool] | None:
-    context = _SESSION_CONTEXT.get()
-    if context is None or token is None or context[0] != token:
+def _resolved_session_state(token: str | None) -> tuple[bool, float] | None:
+    if token is None:
         return None
-    return context
+    _prune_resolved_session_tokens()
+    return _RESOLVED_SESSION_TOKENS.get(token)
 
 
 def client_scope(*, user_id: UUID | None, playback_session_id: UUID, anonymous_session_token: str | None = None) -> str:
@@ -144,10 +161,10 @@ def client_scope(*, user_id: UUID | None, playback_session_id: UUID, anonymous_s
     del playback_session_id
     if user_id is not None:
         return f"user:{user_id}"
-    context = _request_session_context(anonymous_session_token)
-    if context is None:
+    if _resolved_session_state(anonymous_session_token) is None:
         return ANONYMOUS_SCOPE
-    token_digest = hashlib.sha256(context[0].encode()).hexdigest()[:32]
+    assert anonymous_session_token is not None
+    token_digest = hashlib.sha256(anonymous_session_token.encode()).hexdigest()[:32]
     return f"anon-client:{token_digest}"
 
 
@@ -182,7 +199,6 @@ def _should_count_anonymous_identity_mint(*, video_id: UUID, now: datetime | Non
     """
     bucket, epoch_minute = _minute_bucket(now)
     marker = f"{video_id}:{bucket}"
-    # Bounded housekeeping: keep only this and the immediately previous minute.
     for key, seen_minute in list(_SEEN_MINT_WINDOWS.items()):
         if seen_minute < epoch_minute - 1:
             _SEEN_MINT_WINDOWS.pop(key, None)
@@ -195,9 +211,13 @@ def _should_count_anonymous_identity_mint(*, video_id: UUID, now: datetime | Non
 def _new_anonymous_identity_for_this_request(token: str | None, *, user_id: UUID | None) -> bool:
     if user_id is not None or token is None:
         return False
-    context = _request_session_context(token)
-    _SESSION_CONTEXT.set(None)
-    return context is not None and context[1]
+    state = _resolved_session_state(token)
+    if state is None or not state[0]:
+        return False
+    # Consume the mint marker exactly once. The token remains resolved so this
+    # client keeps its stable per-client quota on subsequent requests.
+    _RESOLVED_SESSION_TOKENS[token] = (False, time.monotonic())
+    return True
 
 
 async def admit_playback_event(
