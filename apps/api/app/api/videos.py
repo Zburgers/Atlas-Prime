@@ -58,6 +58,24 @@ from app.core import config
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def _anonymous_session_token(response: Response, user: object | None, telemetry_session: str | None) -> str | None:
+    """Return session continuity for anonymous telemetry writes only.
+
+    Authenticated writes are scoped by the verified user id and never need
+    the cookie, so a missing telemetry secret fails closed (503) for
+    anonymous writes without affecting signed-in telemetry.
+    """
+    if user is not None:
+        return None
+    try:
+        return telemetry_admission.ensure_session_token(response, telemetry_session)
+    except telemetry_admission.TelemetryAdmissionUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "ServiceUnavailable", "message": "Playback telemetry is temporarily unavailable"},
+        ) from None
+
 PLAYLIST_MEDIA_TYPE = "application/vnd.apple.mpegurl"
 SEGMENT_MEDIA_TYPES = {
     ".ts": "video/mp2t",
@@ -364,7 +382,7 @@ async def record_playback_event(
     telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
 ) -> PlaybackEvent:
     video = await video_service.get_video_for_read(session, user, video_id)
-    anonymous_session_token = telemetry_admission.ensure_session_token(response, telemetry_session)
+    anonymous_session_token = _anonymous_session_token(response, user, telemetry_session)
     requested_video_id = video.id
     existing = await session.scalar(select(PlaybackEvent).where(PlaybackEvent.event_id == payload.event_id))
     if existing is not None:
@@ -455,7 +473,7 @@ async def record_video_impression(
     telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
 ) -> object:
     await video_service.get_video_for_read(session, user, video_id)
-    token = telemetry_admission.ensure_session_token(response, telemetry_session)
+    token = _anonymous_session_token(response, user, telemetry_session)
     return await analytics_service.record_impression(session, user, video_id, payload, response, token)
 
 
@@ -469,7 +487,7 @@ async def record_video_view(
     telemetry_session: str | None = Cookie(default=None, alias=telemetry_admission.SESSION_COOKIE_NAME),
 ) -> VideoViewResponse:
     await video_service.get_video_for_read(session, user, video_id)
-    token = telemetry_admission.ensure_session_token(response, telemetry_session)
+    token = _anonymous_session_token(response, user, telemetry_session)
     return await analytics_service.record_view(session, user, video_id, payload, response, token)
 
 

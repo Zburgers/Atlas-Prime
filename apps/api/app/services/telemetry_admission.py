@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import time
@@ -15,12 +16,16 @@ import redis.asyncio as redis
 
 from app.core import config
 
+logger = logging.getLogger(__name__)
+
 ADMISSION_NAMESPACE = "atlas:telemetry:admission:v1"
 MAX_EVENTS_PER_WINDOW = 120
 WINDOW_TTL_SECONDS = 125
 SESSION_COOKIE_NAME = "atlas_telemetry_session"
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+ANONYMOUS_SCOPE = "anon"
 _PROCESS_SECRET = secrets.token_bytes(32)
+_FALLBACK_WARNED = False
 
 
 class TelemetryAdmissionLimitExceeded(Exception):
@@ -62,6 +67,12 @@ def verify_session_token(token: str, *, now: int | None = None) -> bool:
 
 
 def ensure_session_token(response: Response, cookie_value: str | None) -> str:
+    """Return the valid session cookie or mint a fresh one.
+
+    The minted token is stateless session continuity for deduplication only.
+    Anonymous admission NEVER keys on it (see :func:`client_scope`), so
+    discarding the cookie cannot mint additional admission budget.
+    """
     if cookie_value and verify_session_token(cookie_value):
         return cookie_value
     token = issue_session_token()
@@ -75,17 +86,45 @@ def ensure_session_token(response: Response, cookie_value: str | None) -> str:
     return token
 
 
+def _signing_secret() -> bytes:
+    """Stable signing-secret contract for telemetry session cookies.
+
+    A configured ``ATLAS_TELEMETRY_SECRET`` is always preferred so signatures
+    agree across restarts and replicas. When unset, local development falls
+    back to an ephemeral per-process secret; any other environment fails
+    closed so anonymous identities cannot silently reset.
+    """
+    configured = os.getenv("ATLAS_TELEMETRY_SECRET", "")
+    if configured:
+        return configured.encode()
+    if config.env("APP_ENV", "development") == "development":
+        global _FALLBACK_WARNED
+        if not _FALLBACK_WARNED:
+            logger.warning("sector=G stage=telemetry_session using ephemeral signing secret (development only)")
+            _FALLBACK_WARNED = True
+        return _PROCESS_SECRET
+    raise TelemetryAdmissionUnavailable("telemetry session secret is not configured")
+
+
 def _signature(payload: str) -> str:
-    secret = os.getenv("ATLAS_TELEMETRY_SECRET", "").encode() or _PROCESS_SECRET
+    secret = _signing_secret()
     return base64.urlsafe_b64encode(hmac.new(secret, payload.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
 
 
 def client_scope(*, user_id: UUID | None, playback_session_id: UUID, anonymous_session_token: str | None = None) -> str:
+    """Derive the admission scope using only server-trusted identity.
+
+    Authenticated callers are scoped by their verified user id. Anonymous
+    callers share one constant per-video scope: the admission key already
+    binds the server-known video id and server-time window, so no
+    client-controlled value (cookie, session UUID, request id) can mint a
+    fresh rate-limit bucket by rotation. The session cookie survives only as
+    best-effort deduplication continuity, not as admission identity.
+    """
+    del playback_session_id, anonymous_session_token
     if user_id is not None:
         return f"user:{user_id}"
-    if anonymous_session_token is None:
-        raise TelemetryAdmissionUnavailable("anonymous telemetry session is missing")
-    return f"session:{hashlib.sha256(anonymous_session_token.encode()).hexdigest()[:32]}"
+    return ANONYMOUS_SCOPE
 
 
 def admission_key(*, video_id: UUID, scope: str, now: datetime | None = None) -> str:

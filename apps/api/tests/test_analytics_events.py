@@ -405,16 +405,19 @@ def test_admission_keys_separate_video_and_authenticated_anonymous_scopes(
     asyncio.run(admit(video_a, authenticated_a, uuid4()))
     asyncio.run(admit(video_a, authenticated_b, uuid4()))
     asyncio.run(admit(video_b, authenticated_a, uuid4()))
+    # Rotating every client-controlled anonymous value must NOT mint a new bucket.
     asyncio.run(admit(video_a, None, uuid4(), anonymous_session_token))
     asyncio.run(admit(video_a, None, uuid4(), telemetry_admission.issue_session_token(now=int(fixed_now.timestamp()))))
+    asyncio.run(admit(video_a, None, uuid4(), None))
 
-    assert len(fake_telemetry_redis.counters) == 5
+    assert len(fake_telemetry_redis.counters) == 4
     assert all(key.startswith("atlas:telemetry:admission:v1:") for key in fake_telemetry_redis.counters)
     assert all("202608241234" in key for key in fake_telemetry_redis.counters)
-    assert all("user:" in key or "session:" in key for key in fake_telemetry_redis.counters)
+    assert all("user:" in key or ":anon:" in key for key in fake_telemetry_redis.counters)
+    assert all("session:" not in key for key in fake_telemetry_redis.counters)
     assert all("127.0.0.1" not in key for key in fake_telemetry_redis.counters)
     assert all(value == telemetry_admission.WINDOW_TTL_SECONDS for value in fake_telemetry_redis.expirations.values())
-    assert fake_telemetry_redis.transaction_flags == [True] * 5
+    assert fake_telemetry_redis.transaction_flags == [True] * 6
     assert fake_telemetry_redis.closed is True
 
 
@@ -445,3 +448,133 @@ def test_redis_admission_failure_is_sanitized_and_playback_read_is_unaffected(
     }
     assert "redis unavailable" not in response.text
     assert playback.status_code == 200
+
+
+def test_cookie_rotation_cannot_reset_anonymous_event_admission(
+    client: TestClient,
+    fake_telemetry_redis: FakeRedis,
+    fake_telemetry_metrics: FakeMetricsRedis,
+) -> None:
+    """Adversarial: every write drops the issued cookie, rotating identity.
+
+    The attacker also rotates playback_session_id and event_id, so the only
+    admission identity left is server-derived. Accepted writes must stay
+    bounded by the shared per-video budget and no rows may be created past it.
+    """
+    video = client.post("/videos", headers=_headers("rotation-owner"), json={"title": "Rotation target"}).json()
+    _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
+
+    accepted = 0
+    limited = 0
+    for _ in range(150):
+        client.cookies.clear()
+        response = client.post(
+            f"/videos/{video['id']}/events",
+            json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "player_ready"},
+        )
+        if response.status_code == 201:
+            accepted += 1
+        elif response.status_code == 429:
+            limited += 1
+            assert response.json() == {
+                "detail": {"error": "RateLimited", "message": "Playback telemetry rate limit exceeded"}
+            }
+        else:
+            raise AssertionError(f"unexpected status {response.status_code}: {response.text}")
+
+    assert accepted == telemetry_admission.MAX_EVENTS_PER_WINDOW
+    assert limited == 150 - telemetry_admission.MAX_EVENTS_PER_WINDOW
+    anon_keys = [key for key in fake_telemetry_redis.counters if f":{video['id']}:" in key]
+    assert 1 <= len(anon_keys) <= 2  # one shared bucket; two only across a minute boundary
+    assert all(":anon:" in key for key in anon_keys)
+
+    async def count_events() -> int:
+        async with app.state.test_session_maker() as session:
+            return len((await session.scalars(select(PlaybackEvent).where(PlaybackEvent.video_id == UUID(video["id"])))).all())
+
+    import asyncio
+
+    assert asyncio.run(count_events()) == telemetry_admission.MAX_EVENTS_PER_WINDOW
+    assert fake_telemetry_metrics.counters["atlas:telemetry:metrics:v1:accepted"] == telemetry_admission.MAX_EVENTS_PER_WINDOW
+
+
+def test_cookie_rotation_cannot_inflate_impression_and_view_counts(
+    client: TestClient,
+) -> None:
+    """Adversarial: rotating cookies must not inflate ranking counters."""
+    impression_video = client.post("/videos", headers=_headers("rotation-owner"), json={"title": "Rotation impressions"}).json()
+    view_video = client.post("/videos", headers=_headers("rotation-owner"), json={"title": "Rotation views"}).json()
+    _mark_video_ready(client, video_id=impression_video["id"], privacy=VideoPrivacy.PUBLIC)
+    _mark_video_ready(client, video_id=view_video["id"], privacy=VideoPrivacy.PUBLIC)
+
+    accepted_impressions = 0
+    for index in range(150):
+        client.cookies.clear()
+        response = client.post(
+            f"/videos/{impression_video['id']}/impressions",
+            json={"surface": "home", "position": index, "request_id": f"rotation-{index}"},
+        )
+        assert response.status_code in (201, 429), response.text
+        accepted_impressions += response.status_code == 201
+
+    accepted_views = 0
+    for index in range(150):
+        client.cookies.clear()
+        response = client.post(
+            f"/videos/{view_video['id']}/views",
+            json={"session_id": f"rotation-session-{index}", "position_seconds": "10.0"},
+        )
+        assert response.status_code in (201, 429), response.text
+        accepted_views += response.status_code == 201
+
+    assert accepted_impressions == telemetry_admission.MAX_EVENTS_PER_WINDOW
+    assert accepted_views == telemetry_admission.MAX_EVENTS_PER_WINDOW
+    listing = {item["id"]: item for item in client.get("/videos").json()["items"]}
+    assert listing[impression_video["id"]]["impression_count"] == telemetry_admission.MAX_EVENTS_PER_WINDOW
+    assert listing[view_video["id"]]["view_count"] == telemetry_admission.MAX_EVENTS_PER_WINDOW
+
+
+def test_telemetry_secret_missing_fails_closed_outside_development(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    video = client.post("/videos", headers=_headers("secret-owner"), json={"title": "Secret contract"}).json()
+    _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
+    payload = {"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "pause"}
+
+    monkeypatch.setenv("ATLAS_TELEMETRY_SECRET", "")
+    monkeypatch.setenv("APP_ENV", "production")
+    client.cookies.clear()
+    denied = client.post(f"/videos/{video['id']}/events", json=payload)
+    assert denied.status_code == 503
+    assert denied.json() == {
+        "detail": {"error": "ServiceUnavailable", "message": "Playback telemetry is temporarily unavailable"}
+    }
+
+    authenticated = client.post(f"/videos/{video['id']}/events", headers=_headers("secret-owner"), json=payload)
+    assert authenticated.status_code == 201
+
+    async def count_events() -> int:
+        async with app.state.test_session_maker() as session:
+            return len((await session.scalars(select(PlaybackEvent).where(PlaybackEvent.video_id == UUID(video["id"])))).all())
+
+    import asyncio
+
+    assert asyncio.run(count_events()) == 1
+
+
+def test_telemetry_secret_missing_uses_ephemeral_secret_in_development(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    video = client.post("/videos", headers=_headers("dev-secret-owner"), json={"title": "Dev secret"}).json()
+    _mark_video_ready(client, video_id=video["id"], privacy=VideoPrivacy.PUBLIC)
+
+    monkeypatch.setenv("ATLAS_TELEMETRY_SECRET", "")
+    monkeypatch.setenv("APP_ENV", "development")
+    client.cookies.clear()
+    response = client.post(
+        f"/videos/{video['id']}/events",
+        json={"playback_session_id": str(uuid4()), "event_id": str(uuid4()), "event_type": "pause"},
+    )
+    assert response.status_code == 201
