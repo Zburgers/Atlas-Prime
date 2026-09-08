@@ -4,7 +4,7 @@ Status: canonical plan index
 Last reconciled: 2026-09-08
 Repository branch: `docs/fullplatform-rollout`
 Reconciliation base commit: `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3` (current `main`)
-Current release-evidence candidate: `aee06a58888db8cc4f5536381dfbf4712655ebb0`
+Current PR #12 implementation/test candidate: `c5140fc4fe05314dfa29116891831c85802e7341`
 Merged handbook PR: [#11](https://github.com/Zburgers/Atlas-Prime/pull/11), merge commit `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`
 
 ## Contract
@@ -32,8 +32,8 @@ Precedence for implementation work:
 | 1 | `2026-08-04-01-contract-boundary.md` | Executable remediation | COMPLETE | Exit evidence recorded at `5a44489` (make lint/test pass; smoke blocked only by occupied 127.0.0.1:3001) | `bac7a89`, `fd62a20`, `d79b42f`, `ced7472`, `d33d456`, `5a44489` |
 | 2 | `2026-08-04-02-upload-job-idempotency.md` | Executable remediation | COMPLETE | Plan 1 exit recorded; generation contract and bounded recovery validated at `6bb8064` | `6bb8064`: `make test` (115 API, 14 worker, 5 web); `make lint`; alternate-port smoke passed |
 | 3 | `2026-08-04-03-media-publication-deletion.md` | Executable remediation | COMPLETE | Plan 2 COMPLETE at `6bb8064`; Plan 3 implementation and exit evidence are verified at `83229d4` | `83229d4`: publication/deletion tests, `make lint`, `make test`, alternate-port smoke, and `git diff --check` |
-| 4 | `2026-08-04-04-telemetry-governance.md` | Executable remediation | COMPLETE | Plan 3 COMPLETE at `83229d4`; R-004 accepted on 2026-08-05; parent verified the Plan 4 exit gate at `3021889` | `3021889`: `make lint`, `make test` (145 API, 25 worker, 9 web), alternate-port smoke, `git diff --check`, and local/browser accessibility evidence |
-| 5 | `2026-08-04-05-release-evidence.md` | Executable release gate | COMPLETE | Plans 1-4 complete; Plan 4 exit evidence is recorded at `3021889` | Candidate `aee06a58888db8cc4f5536381dfbf4712655ebb0`: local gates, exact-SHA smoke, and CI run `34169243078` passed; release/deployment/production remain separately unverified |
+| 4 | `2026-08-04-04-telemetry-governance.md` | Executable remediation | COMPLETE | Plan 3 COMPLETE at `83229d4`; R-004 accepted on 2026-08-05; parent verified the Plan 4 exit gate at `3021889` | Historical Plan 4 exit `3021889`; PR #12 telemetry reconciliation runtime fix `903a3b1` + policy regression tests `c5140fc` preserve D-013 while bounding identity rotation |
+| 5 | `2026-08-04-05-release-evidence.md` | Executable release gate | COMPLETE | Plans 1-4 complete | Historical Plan 5 evidence remains valid for its historical candidate; current PR #12 merge-readiness evidence is tracked in `docs/audits/release-evidence-current.md` and the PR body |
 
 There is deliberately no implementation plan for ML personalization, monetization, live streaming, native mobile, or production deployment. Those remain unapproved or premature under the MVP contract. Creating detailed build instructions for them would give agents false authority and recreate the non-determinism this index prevents.
 
@@ -52,30 +52,35 @@ The PR #11 handbook audited `main` at `dcf8d5cd3d18bb29dccb70dbce44405043a8adcb`
 | C-007 storage deletion | RESOLVED | Tombstone-first original/processed cleanup and reconciliation at `bb27f28` |
 | C-008 active-worker deletion fence | RESOLVED | Publication and finalize tombstone fences at `a417095` and `bb27f28` |
 | C-009 segment inventory binding | RESOLVED | Inventory-bound proxy and signed delivery at `88ae38a` |
-| C-010 telemetry governance | RESOLVED | Identity/deduplication at `7e0142a`; admission at `ef8b711`; retention at `6ee3323`; aggregate health at `5494bc9`; Plan 4 exit gate verified at `3021889` |
+| C-010 telemetry governance | RESOLVED PENDING FINAL CI | D-013 remains 120 events/minute/client/video with no persisted IP. Runtime `903a3b1` restores signed per-client anonymous buckets and adds a separate new-identity circuit breaker; `c5140fc` proves two legitimate clients retain independent 120-event budgets while rotation remains bounded. |
 | C-011 strict Clerk `azp` | RESOLVED | Configured allowlists reject missing/mismatched `azp`; tests green at `ced7472` |
 | C-012 stale watch copy | RESOLVED | User-safe lifecycle copy and smoke assertions at `d33d456` |
-| Current-head/release evidence | COMPLETE | Plan 5 candidate `aee06a58888db8cc4f5536381dfbf4712655ebb0`; local gates, exact-SHA smoke, and CI run `34169243078` passed; historical failures remain in the release audit |
+| Current-head/release evidence | PENDING FINAL CI | Implementation/test candidate is `c5140fc4fe05314dfa29116891831c85802e7341`; docs-inclusive final head and exact-head CI are recorded in the PR body because embedding a future run id in-tree would mutate the head it describes |
 
 Post-MVP product slices present on this branch include public discovery, channels, likes, watch later, Studio, comments, deterministic feeds, recommendation logging, thumbnails, moderation, analytics, captions, subscriptions, history, playlists, rich playback events, expanded media output, chapters, signed redirect delivery, Meilisearch indexing/read fallback, accessibility verification, and caption transcript search.
 
 ## PR #12 Reconciliation (2026-09-08)
 
-The rollout branch was reconciled against current `main` at `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`. PR #12 implementation candidate `aee06a58888db8cc4f5536381dfbf4712655ebb0` addresses all eight merge-blocking review findings: generic public comment identity, shared visibility predicates, commit-first processing dispatch, canonical manual processing publication, signed anonymous telemetry admission, atomic engagement counters, locked playlist positions, and exact release evidence.
+The rollout branch is reconciled against current `main` at `8d0ebc5f7c08d66c2d5edbe910c1aee740bed9b3`. The current PR #12 implementation/test candidate is `c5140fc4fe05314dfa29116891831c85802e7341`, with the final telemetry runtime change at `903a3b1080b661a3ca96c6b24d5f98f6fa48ee52`.
 
-Resolved issue follow-up: #1, #3, #4, #5, #6, #7, #8, #9, #10, #13, #20, #21, and #23 are covered by the candidate and should be closed with the linked PR evidence. Explicitly deferred open work remains #2 (admin authorization is still API-authoritative/partial), #14–#19 (media-output and decoded-complexity hardening), #22 (bounded dependency health checks), and #24 (nonblocking HLS streaming). The two nonblocking review comments about analytics rebuild concurrency and container-startup migration are also deferred; neither is a PR #12 merge blocker.
+The candidate addresses the merge-blocking review findings: generic public comment identity; shared visibility predicates; commit-first processing dispatch; canonical manual processing publication; telemetry admission that preserves D-013's 120 events/minute/client/video semantics while separately bounding new anonymous identity minting; stable telemetry signing-secret contract; atomic engagement counters; locked playlist positions; and current release evidence.
 
-The PR is ready for review only after exact-head CI is green; this reconciliation does not authorize merge, deployment, or production qualification.
+Telemetry policy is intentionally two-layered and does **not** redefine D-013: each verified user or server-signed anonymous client receives an independent 120 events/minute/video budget. When an anonymous request lacks a valid signed cookie and the server must mint a new client identity, a separate per-video/minute circuit breaker bounds identity creation. The circuit breaker exists only to stop cookie-deletion/rotation from creating unbounded aggregate write capacity; it is not the client event quota. No raw IP or derived IP identifier is stored.
+
+Resolved issue follow-up after exact-head CI: #1, #3, #4, #5, #6, #7, #8, #9, #10, #13, #20, #21, and #23 are covered by the candidate. Explicitly deferred open work remains #2 (admin authorization is still API-authoritative/partial), #14–#19 (media-output and decoded-complexity hardening), #22 (bounded dependency health checks), and #24 (nonblocking HLS streaming). The two nonblocking review comments about analytics rebuild scalability and container-startup migration are also deferred; neither is a PR #12 merge blocker.
+
+The PR is merge-ready only after the docs-inclusive final head has exact-head green CI and the reopened telemetry/release-evidence review threads are resolved against that final state. This reconciliation does not authorize deployment or production qualification.
 
 ## Owner decisions recorded 2026-08-05
 
 - D-011: keep `ATLAS_ADMIN_CLERK_USER_IDS` as the operator identity source.
 - D-012: use asynchronous deletion status with an immediate tombstone and retryable cleanup.
 - D-013: retain telemetry 30 days, cap admission at 120 events/minute/client/video, and persist no IP.
+- D-013 implementation note (2026-09-08): anonymous clients are identified by a stable server-signed cookie for the per-client quota. A separate short-lived new-identity circuit breaker bounds rotation abuse without changing the per-client quota and without storing IP/derived-IP identifiers.
 - CI release evidence will use an explicit Clerk-free smoke mode in CI; production and normal local auth remain Clerk-backed.
 - R-001 (maximum upload size) remains open; agents must not infer a new limit.
 
-These slices do not bypass the remediation sequence. Hardening Plans 1-5 are complete for the documented candidate. Recommendation V2 and ML remain deferred until the owner explicitly promotes that scope; merge, deployment, and production qualification remain separate approvals.
+These slices do not bypass the remediation sequence. Recommendation V2 and ML remain deferred until the owner explicitly promotes that scope; merge, deployment, and production qualification remain separate approvals.
 
 Plan 1 exit evidence is attributable to implementation commits `bac7a89`, `fd62a20`, `d79b42f`, `ced7472`, and `d33d456`, plus the contract documentation and memory handoff commit recorded below. C-001 remains partial by design: FastAPI is authoritative and the proxy does not independently authorize roles.
 
@@ -83,9 +88,9 @@ Plan 2 exit evidence is attributable to `6bb8064`, atop the generation-fencing c
 
 Plan 3 implementation evidence is attributable to `5fb8d86` (publication/deletion schema), `8cf082a` (attempt-scoped staging and typed upload inventory), `a417095` (atomic publication), `88ae38a` (inventory-bound playback), `bb27f28` (tombstone-first deletion and reconciliation), and `83229d4` (cursor-batch remediation). The parent-verified exit gate at `83229d4` passed `make lint`, `make test` (130 API, 25 worker, 5 web), `WEB_PORT=3002 WEB_SMOKE_URL=http://127.0.0.1:3002 make smoke`, and `git diff --check`. Plan 3 is COMPLETE. This is repository/local evidence only and does not claim merge, deployment, authenticated browser qualification, or production readiness.
 
-Plan 4 is COMPLETE at `3021889`. Implementation evidence is attributable to `7e0142a` (session/event identity), `47e54ff` (client identity remediation), `ef8b711` (Redis admission), `6ee3323` (raw-event retention), and `5494bc9` (aggregate operator health). The parent-verified exit gate passed `make lint`, `make test` (145 API, 25 worker, 9 web), `WEB_PORT=3003 WEB_SMOKE_URL=http://127.0.0.1:3003 make smoke`, and `git diff --check`. The same local verification included public-route Playwright checks, mobile overflow and keyboard focus checks, and Lighthouse accessibility 100 with zero failing audits on the rebuilt web artifact. These are local/browser artifacts only: merge, deployment, authenticated admin-role qualification, and production readiness remain unverified.
+Plan 4 historical exit evidence is attributable to `3021889`, with implementation commits `7e0142a`, `47e54ff`, `ef8b711`, `6ee3323`, and `5494bc9`. PR #12 later hardening discovered and corrected an anonymous-identity rotation gap without changing D-013: `903a3b1` implements the two-layer quota/identity-mint boundary and `c5140fc` adds focused policy regression tests.
 
-Plan 5 is COMPLETE at implementation candidate `8e9b3244e9e47c488b1a5de4d4cbc9f10ef36187`. `make lint`, `make test` (149 API, 25 worker, 11 web), and exact-SHA `WEB_PORT=3009` smoke passed with fixed build time `2026-08-24T05:24:56Z`; CI run `32693450411` completed successfully with the same `head_sha`. The documentation-inclusive follow-up head `d5c5ba07d9bedb58d69eca6308ee69d0a991e72f` was also requalified locally and by CI run `32694224817`. Production remains `UNVERIFIED`.
+Plan 5 historical release evidence remains preserved in the release audit. For PR #12, the current implementation/test candidate is `c5140fc4fe05314dfa29116891831c85802e7341`; exact-head CI and the docs-inclusive final head are tracked in `docs/audits/release-evidence-current.md` plus the mutable PR body.
 
 ## Sequential Agent Protocol
 
