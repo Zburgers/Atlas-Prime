@@ -48,6 +48,7 @@ The eight merge-blocking review findings, plus the two reopened final-head findi
 - `head_sha`: `266b4600a3973753357a46800c96460aae2cbcfc`
 - Required check: `devex` passed (job [101979716714](https://github.com/Zburgers/Atlas-Prime/actions/runs/34201068181/job/101979716714)).
 - Status/conclusion: `completed` / `success`.
+- Final docs-head run: [CI run 34201318859](https://github.com/Zburgers/Atlas-Prime/actions/runs/34201318859) on `9c14a329ecfb2fc0491a6c0dc4074c5f7b0db533` — `completed` / `success`. The current HEAD adds only this run-id line on top of `9c14a32`; its own exact-head run is recorded in the PR body (embedding that future run id in-tree would itself invalidate the HEAD it describes).
 
 ## Evidence Boundaries
 
