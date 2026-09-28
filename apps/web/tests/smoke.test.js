@@ -34,6 +34,53 @@ test("web proxy keeps Clerk middleware out of exact CI smoke mode", () => {
   assert.match(proxy, /export const config = \{/);
 });
 
+test("admin allowlist policy and proxy denial happen before forwarding", async () => {
+  const { adminAccessStatus, withAdminProxyAuthorization } = await import("../app/admin/admin-policy.mjs");
+
+  assert.equal(adminAccessStatus(null, "user_admin"), 401);
+  assert.equal(adminAccessStatus("user_admin", " , "), 403);
+  assert.equal(adminAccessStatus("user_other", " user_admin, ,user_admin "), 403);
+  assert.equal(adminAccessStatus("user_admin", " user_admin, ,user_admin "), null);
+
+  let forwarded = false;
+  const forward = async () => {
+    forwarded = true;
+    return Response.json({ ok: true });
+  };
+  const signedOut = await withAdminProxyAuthorization(["admin", "ops"], async () => 401, forward);
+  assert.equal(signedOut.status, 401);
+  assert.equal(forwarded, false);
+
+  const denied = await withAdminProxyAuthorization(["admin", "ops"], async () => 403, forward);
+  assert.equal(denied.status, 403);
+  assert.equal(forwarded, false);
+
+  const allowed = await withAdminProxyAuthorization(["admin", "ops"], async () => null, forward);
+  assert.equal(allowed.status, 200);
+  assert.equal(forwarded, true);
+
+  forwarded = false;
+  const passThrough = await withAdminProxyAuthorization(["videos"], async () => 403, forward);
+  assert.equal(passThrough.status, 200);
+  assert.equal(forwarded, true);
+});
+
+test("admin pages share a server guard and smoke mode does not grant admin access", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const layout = fs.readFileSync(path.join(__dirname, "../app/admin/layout.tsx"), "utf8");
+  const auth = fs.readFileSync(path.join(__dirname, "../app/admin/admin-auth.ts"), "utf8");
+  const route = fs.readFileSync(path.join(__dirname, "../app/api/backend/[...path]/route.ts"), "utf8");
+
+  assert.match(layout, /await getAdminAccessStatus\(\)/);
+  assert.match(layout, /if \(status === 401\) redirect\("\/sign-in"\)/);
+  assert.match(layout, /if \(status === 403\) notFound\(\)/);
+  assert.doesNotMatch(auth, /ATLAS_CI_SMOKE_MODE/);
+  assert.match(route, /withAdminProxyAuthorization\(path, getAdminAccessStatus, async \(\) => \{/);
+  assert.ok(route.indexOf("withAdminProxyAuthorization") < route.indexOf("new URL(path.join"));
+  assert.ok(route.indexOf("withAdminProxyAuthorization") < route.indexOf("await fetch(target, init)"));
+});
+
 test("normal video contracts redact storage and queue internals", () => {
   const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../app/components/video-api.ts"), "utf8");
 

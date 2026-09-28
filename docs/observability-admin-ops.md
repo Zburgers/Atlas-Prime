@@ -4,7 +4,7 @@ Sector G adds a protected MVP debugging surface for the local demo.
 
 ## Operator identity and data boundary
 
-The operator surface is available only to Clerk identities listed in the comma-separated `ATLAS_ADMIN_CLERK_USER_IDS` environment variable. FastAPI's `AdminUserDep` is the authoritative check for every `/admin` route; the Next.js proxy forwards credentials but does not grant operator access.
+The operator surface is available only to Clerk identities listed in the comma-separated `ATLAS_ADMIN_CLERK_USER_IDS` environment variable, shared by FastAPI and the Next.js server. A server layout guards all `/admin/*` pages, and the backend proxy checks `/admin/*` calls before forwarding. FastAPI's `AdminUserDep` remains authoritative for every admin API route.
 
 Product/creator responses are intentionally redacted. Storage keys, rendition playlist keys, and queue/task identifiers are available only through the protected operator/debug schemas returned by `/admin/videos` and `/admin/videos/{video_id}/debug`. Do not copy these fields into normal product API types or expose them in user-facing errors.
 
