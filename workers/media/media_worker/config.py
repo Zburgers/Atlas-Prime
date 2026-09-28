@@ -1,6 +1,55 @@
 from __future__ import annotations
 
 import os
+import re
+from dataclasses import dataclass
+from fractions import Fraction
+
+
+@dataclass(frozen=True)
+class MediaAdmissionPolicy:
+    max_duration_seconds: int
+    max_width: int
+    max_height: int
+    max_pixel_area: int
+    max_frame_rate: Fraction
+    max_decoded_work_pixel_frames: int
+
+
+def _positive_int(name: str, default: int, approved_max: int | None = None) -> int:
+    raw = env(name, str(default))
+    if not re.fullmatch(r"[0-9]+", raw):
+        raise ValueError(f"{name} must be a positive integer")
+    value = int(raw)
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    if approved_max is not None and value > approved_max:
+        raise ValueError(f"{name} must not exceed {approved_max}")
+    return value
+
+
+def _positive_fraction(name: str, default: str, approved_max: Fraction) -> Fraction:
+    raw = env(name, default)
+    try:
+        value = Fraction(raw)
+    except (ValueError, ZeroDivisionError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a positive finite rational") from exc
+    if value <= 0 or value > approved_max:
+        raise ValueError(f"{name} must be positive and no greater than {approved_max}")
+    return value
+
+
+def media_admission_policy() -> MediaAdmissionPolicy:
+    return MediaAdmissionPolicy(
+        max_duration_seconds=_positive_int("ATLAS_MEDIA_MAX_DURATION_SECONDS", 600, 600),
+        max_width=_positive_int("ATLAS_MEDIA_MAX_WIDTH", 1920, 1920),
+        max_height=_positive_int("ATLAS_MEDIA_MAX_HEIGHT", 1920, 1920),
+        max_pixel_area=_positive_int("ATLAS_MEDIA_MAX_PIXEL_AREA", 2_073_600, 2_073_600),
+        max_frame_rate=_positive_fraction("ATLAS_MEDIA_MAX_FRAME_RATE", "30/1", Fraction(30)),
+        max_decoded_work_pixel_frames=_positive_int(
+            "ATLAS_MEDIA_MAX_DECODED_WORK_PIXEL_FRAMES", 37_324_800_000, 37_324_800_000
+        ),
+    )
 
 
 def env(name: str, default: str = "") -> str:
@@ -51,8 +100,4 @@ def worker_id() -> str:
 
 
 def ffmpeg_timeout_seconds() -> int:
-    raw = env("ATLAS_FFMPEG_TIMEOUT_SECONDS", "120")
-    try:
-        return int(raw)
-    except ValueError:
-        return 120
+    return _positive_int("ATLAS_FFMPEG_TIMEOUT_SECONDS", 1800)

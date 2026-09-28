@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -10,22 +11,28 @@ from media_worker import config
 
 
 class ProcessingError(RuntimeError):
-    def __init__(self, code: str, safe_message: str, detail: str | None = None) -> None:
+    def __init__(self, code: str, safe_message: str, detail: str | None = None, *, reason: str | None = None) -> None:
         super().__init__(safe_message)
         self.code = code
         self.safe_message = safe_message
         self.detail = detail or safe_message
+        self.reason = reason
 
 
 @dataclass(frozen=True)
 class MediaProbe:
     duration_seconds: float | None
-    width: int
-    height: int
+    width: int | None
+    height: int | None
     video_codec: str | None
     audio_codec: str | None
     source_bitrate: int | None
     has_audio: bool
+    duration_exact: Fraction | None = None
+    effective_width: int | None = None
+    effective_height: int | None = None
+    rotation_degrees: int | None = 0
+    frame_rate: Fraction | None = None
 
 
 @dataclass(frozen=True)
@@ -86,13 +93,60 @@ def _run(command: list[str], *, timeout: int | None = None) -> subprocess.Comple
         raise ProcessingError("MEDIA_COMMAND_FAILED", "Media processing command failed", detail) from exc
 
 
-def _parse_float(value: Any) -> float | None:
-    if value in (None, "", "N/A"):
+def _parse_finite_fraction(value: Any) -> Fraction | None:
+    if value is None or isinstance(value, bool):
+        return None
+    text = str(value)
+    if len(text) > 128:
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        return Fraction(text)
+    except (ValueError, ZeroDivisionError, OverflowError):
         return None
+
+
+def _parse_positive_fraction(value: Any) -> Fraction | None:
+    parsed = _parse_finite_fraction(value)
+    return parsed if parsed is not None and parsed > 0 else None
+
+
+def _parse_positive_dimension(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if not isinstance(value, str) or not value.isdecimal():
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _display_rotation(video_stream: dict[str, Any]) -> int | None:
+    side_data = video_stream.get("side_data_list", [])
+    if not isinstance(side_data, list):
+        return None
+    rotations: set[int] = set()
+    for item in side_data:
+        if not isinstance(item, dict):
+            return None
+        if item.get("side_data_type") != "Display Matrix" or "rotation" not in item:
+            continue
+        rotation = _parse_finite_fraction(item["rotation"])
+        if rotation is None:
+            return None
+        normalized = rotation % 360
+        if normalized.denominator != 1 or int(normalized) not in (0, 90, 180, 270):
+            return None
+        rotations.add(int(normalized))
+    return next(iter(rotations), 0) if len(rotations) <= 1 else None
+
+
+def _policy_rejection(reason: str) -> ProcessingError:
+    return ProcessingError(
+        "MEDIA_POLICY_REJECTED",
+        f"Uploaded media was rejected by policy ({reason})",
+        reason=reason,
+    )
 
 
 def _parse_int(value: Any) -> int | None:
@@ -100,7 +154,7 @@ def _parse_int(value: Any) -> int | None:
         return None
     try:
         return int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -113,6 +167,8 @@ def probe_media(source: Path) -> MediaProbe:
         "json",
         "-show_format",
         "-show_streams",
+        "-show_entries",
+        "stream=codec_type,codec_name,width,height,duration,avg_frame_rate,r_frame_rate,bit_rate:stream_side_data=side_data_type,rotation:format=duration,bit_rate",
         str(source),
     ]
     try:
@@ -121,30 +177,103 @@ def probe_media(source: Path) -> MediaProbe:
     except json.JSONDecodeError as exc:
         raise ProcessingError("FFPROBE_INVALID_JSON", "Could not inspect media", str(exc)) from exc
 
-    streams = payload.get("streams") or []
+    if not isinstance(payload, dict) or not isinstance(payload.get("streams"), list):
+        raise _policy_rejection("metadata")
+    streams = payload["streams"]
+    if any(not isinstance(stream, dict) for stream in streams):
+        raise _policy_rejection("metadata")
     video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
     audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
     if not video_stream:
         raise ProcessingError("NO_VIDEO_STREAM", "Uploaded file does not contain a video stream")
 
-    width = _parse_int(video_stream.get("width"))
-    height = _parse_int(video_stream.get("height"))
-    if not width or not height:
-        raise ProcessingError("INVALID_VIDEO_DIMENSIONS", "Uploaded video dimensions could not be read")
+    width = _parse_positive_dimension(video_stream.get("width"))
+    height = _parse_positive_dimension(video_stream.get("height"))
+    rotation = _display_rotation(video_stream)
+    effective_width = effective_height = None
+    if width is not None and height is not None and rotation is not None:
+        effective_width, effective_height = (height, width) if rotation in (90, 270) else (width, height)
 
     format_data = payload.get("format") or {}
-    duration = _parse_float(video_stream.get("duration")) or _parse_float(format_data.get("duration"))
+    if not isinstance(format_data, dict):
+        raise _policy_rejection("metadata")
+    durations = [
+        duration
+        for duration in (
+            _parse_positive_fraction(video_stream.get("duration")),
+            _parse_positive_fraction(format_data.get("duration")),
+        )
+        if duration is not None
+    ]
+    duration_exact = max(durations) if durations else None
+    try:
+        duration_seconds = float(duration_exact) if duration_exact is not None else None
+        if duration_seconds is not None and not (duration_seconds > 0 and duration_seconds < float("inf")):
+            duration_seconds = None
+    except OverflowError:
+        duration_seconds = None
+    rates = [
+        rate
+        for rate in (
+            _parse_positive_fraction(video_stream.get("avg_frame_rate")),
+            _parse_positive_fraction(video_stream.get("r_frame_rate")),
+        )
+        if rate is not None
+    ]
     source_bitrate = _parse_int(format_data.get("bit_rate")) or _parse_int(video_stream.get("bit_rate"))
 
     return MediaProbe(
-        duration_seconds=duration,
+        duration_seconds=duration_seconds,
         width=width,
         height=height,
         video_codec=video_stream.get("codec_name"),
         audio_codec=audio_stream.get("codec_name") if audio_stream else None,
         source_bitrate=source_bitrate,
         has_audio=audio_stream is not None,
+        duration_exact=duration_exact,
+        effective_width=effective_width,
+        effective_height=effective_height,
+        rotation_degrees=rotation,
+        frame_rate=max(rates) if rates else None,
     )
+
+
+def validate_media_policy(probe: MediaProbe, policy: config.MediaAdmissionPolicy) -> None:
+    if (
+        probe.duration_exact is None
+        or probe.duration_exact <= 0
+        or probe.width is None
+        or probe.height is None
+        or probe.width <= 0
+        or probe.height <= 0
+        or probe.effective_width is None
+        or probe.effective_height is None
+        or probe.effective_width <= 0
+        or probe.effective_height <= 0
+        or probe.rotation_degrees is None
+        or probe.rotation_degrees not in (0, 90, 180, 270)
+        or probe.frame_rate is None
+        or probe.frame_rate <= 0
+    ):
+        raise _policy_rejection("metadata")
+    if probe.duration_exact > policy.max_duration_seconds:
+        raise _policy_rejection("duration")
+    area = probe.effective_width * probe.effective_height
+    if (
+        probe.effective_width > policy.max_width
+        or probe.effective_height > policy.max_height
+        or area > policy.max_pixel_area
+    ):
+        raise _policy_rejection("dimensions")
+    expected_dimensions = (
+        (probe.height, probe.width) if probe.rotation_degrees in (90, 270) else (probe.width, probe.height)
+    )
+    if (probe.effective_width, probe.effective_height) != expected_dimensions:
+        raise _policy_rejection("metadata")
+    if probe.frame_rate > policy.max_frame_rate:
+        raise _policy_rejection("frame_rate")
+    if area * probe.frame_rate * probe.duration_exact > policy.max_decoded_work_pixel_frames:
+        raise _policy_rejection("work")
 
 
 def rendition_plan_for(probe: MediaProbe) -> list[RenditionPlan]:

@@ -79,6 +79,8 @@ The worker should:
 4. Capture stderr/stdout logs in developer-visible logs, but sanitize user-facing errors.
 5. Use timeouts/resource limits where feasible.
 
+The approved single-node admission envelope is recorded in [D-014](../decisions/D-014-decoded-media-envelope.md): 600 seconds, effective dimensions up to 1920×1920 and 2,073,600 pixels, 30 fps, and 37,324,800,000 decoded pixel-frames. Enforce it immediately after the single structured ffprobe result and before any thumbnail or packaging FFmpeg process. Metadata precedence and invalid-value behavior are defined by D-014, not by parser defaults. The per-FFmpeg process timeout is 1,800 seconds; it is not an admission substitute or throughput guarantee. The research fixture ran for only 12 seconds and does not establish 10-minute throughput. R-001 upload-byte policy and worker CPU/memory caps remain unchanged.
+
 ## Deliverables
 
 - Worker process or command.
