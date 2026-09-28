@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from fractions import Fraction
+from pathlib import Path
 
 from media_worker.packager import PackageResult, PackagedRendition
 from media_worker.repository import MediaRepository, PublicationResult
@@ -467,6 +469,11 @@ def test_celery_cleans_prior_attempt_after_publish_without_touching_new_or_legac
             audio_codec="aac",
             source_bitrate=1000,
             has_audio=True,
+            duration_exact=Fraction(1),
+            effective_width=640,
+            effective_height=360,
+            rotation_degrees=0,
+            frame_rate=Fraction(24),
         ),
     )
 
@@ -493,6 +500,79 @@ def test_celery_cleans_prior_attempt_after_publish_without_touching_new_or_legac
         "processed/video-id/attempts/generation-id/hls/master.m3u8",
         "processed/video-id/hls/master.m3u8",
     }
+
+
+def test_celery_policy_rejection_fails_job_before_any_packaging_ffmpeg(monkeypatch, tmp_path) -> None:
+    from media_worker import celery_app as celery_module, packager
+    from media_worker.packager import MediaProbe
+    from media_worker.repository import ProcessingFailure
+
+    class FakeRepository:
+        failure: ProcessingFailure | None = None
+
+        def mark_started(self, **kwargs) -> bool:
+            return True
+
+        def mark_stage(self, **kwargs) -> bool:
+            return True
+
+        def mark_processing(self, **kwargs) -> bool:
+            raise AssertionError("rejected probe must not advance to processing")
+
+        def mark_failed(self, *, failure, **kwargs) -> bool:
+            self.failure = failure
+            return True
+
+    class FakeStorage:
+        def download_original(self, key: str, destination: Path) -> None:
+            destination.write_bytes(b"source")
+
+        def delete_hls_tree(self, *, video_id: str, generation: str) -> int:
+            return 0
+
+    repository = FakeRepository()
+    subprocess_commands: list[list[str]] = []
+    monkeypatch.setattr(celery_module, "MediaRepository", lambda: repository)
+    monkeypatch.setattr(celery_module, "ObjectStorage", FakeStorage)
+    monkeypatch.setattr(
+        celery_module,
+        "probe_media",
+        lambda source: MediaProbe(
+            duration_seconds=601.0,
+            width=640,
+            height=360,
+            video_codec="h264",
+            audio_codec="aac",
+            source_bitrate=1000,
+            has_audio=True,
+            duration_exact=Fraction(601),
+            effective_width=640,
+            effective_height=360,
+            rotation_degrees=0,
+            frame_rate=Fraction(24),
+        ),
+    )
+
+    def record_subprocess(command: list[str], **kwargs):
+        subprocess_commands.append(command)
+        raise AssertionError("no FFmpeg subprocess should launch for rejected media")
+
+    monkeypatch.setattr(packager, "_run", record_subprocess)
+
+    result = celery_module.process_video.run("video-id", "job-id", "generation-id", "originals/video.mp4")
+
+    assert result == {
+        "status": "failed",
+        "video_id": "video-id",
+        "job_id": "job-id",
+        "failure_code": "MEDIA_POLICY_REJECTED",
+        "failure_reason": "duration",
+    }
+    assert repository.failure == ProcessingFailure(
+        code="MEDIA_POLICY_REJECTED",
+        message="Uploaded media was rejected by policy (duration)",
+    )
+    assert subprocess_commands == []
 
 
 def _complete_assets(

@@ -5,7 +5,7 @@ from pathlib import Path
 from celery import Celery
 
 from media_worker import config
-from media_worker.packager import ProcessingError, package_to_hls, probe_media
+from media_worker.packager import ProcessingError, package_to_hls, probe_media, validate_media_policy
 from media_worker.repository import MediaRepository, ProcessingFailure
 from media_worker.storage import ObjectStorage
 
@@ -18,6 +18,8 @@ celery_app.conf.task_default_queue = "media"
 celery_app.conf.worker_prefetch_multiplier = 1
 celery_app.conf.task_acks_late = True
 logger = logging.getLogger(__name__)
+MEDIA_ADMISSION_POLICY = config.media_admission_policy()
+config.ffmpeg_timeout_seconds()
 
 
 @celery_app.task(name="media_worker.health")
@@ -45,6 +47,7 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
                 logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_generation", video_id, job_id)
                 return {"status": "skipped", "video_id": video_id, "job_id": job_id}
             probe = probe_media(source_path)
+            validate_media_policy(probe, MEDIA_ADMISSION_POLICY)
             logger.info(
                 "sector=D stage=probe_complete video_id=%s job_id=%s duration=%s width=%s height=%s video_codec=%s audio_codec=%s",
                 video_id,
@@ -123,10 +126,11 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
             }
     except ProcessingError as exc:
         logger.warning(
-            "sector=D stage=processing_failed video_id=%s job_id=%s failure_code=%s",
+            "sector=D stage=processing_failed video_id=%s job_id=%s failure_code=%s reason=%s",
             video_id,
             job_id,
             exc.code,
+            exc.reason or "none",
         )
         _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id, generation=generation)
         applied = repository.mark_failed(
@@ -138,7 +142,13 @@ def process_video(video_id: str, job_id: str, generation: str, original_storage_
         if not applied:
             logger.info("sector=D stage=processing_skipped video_id=%s job_id=%s reason=stale_terminal", video_id, job_id)
             return {"status": "skipped", "video_id": video_id, "job_id": job_id}
-        return {"status": "failed", "video_id": video_id, "job_id": job_id, "failure_code": exc.code}
+        return {
+            "status": "failed",
+            "video_id": video_id,
+            "job_id": job_id,
+            "failure_code": exc.code,
+            **({"failure_reason": exc.reason} if exc.reason else {}),
+        }
     except Exception as exc:
         logger.exception("sector=D stage=processing_exception video_id=%s job_id=%s", video_id, job_id)
         _cleanup_hls_tree(storage, video_id=video_id, job_id=job_id, generation=generation)

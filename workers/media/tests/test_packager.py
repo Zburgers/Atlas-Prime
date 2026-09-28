@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import subprocess
+from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
 
-from media_worker.packager import MediaProbe, ProcessingError, package_to_hls, probe_media, rendition_plan_for
+from media_worker import config, packager
+from media_worker.packager import (
+    MediaProbe,
+    ProcessingError,
+    package_to_hls,
+    probe_media,
+    rendition_plan_for,
+    validate_media_policy,
+)
 from media_worker.storage import ObjectStorage
 
 
@@ -28,6 +40,8 @@ def test_probe_and_package_sample_fixture(tmp_path: Path) -> None:
     assert probe.height == 360
     assert probe.video_codec
     assert probe.audio_codec
+    assert probe.duration_exact == Fraction(2)
+    assert probe.frame_rate == Fraction(24)
     assert [plan.label for plan in plans] == ["360p"]
     assert (result.hls_root / "master.m3u8").read_text(encoding="utf-8").startswith("#EXTM3U")
     assert (result.hls_root / "360p" / "playlist.m3u8").exists()
@@ -48,6 +62,195 @@ def test_probe_and_package_sample_fixture(tmp_path: Path) -> None:
     assert (result.hls_root / "thumbnail_02.jpg").stat().st_size > 0
     assert (result.hls_root / "thumbnail_03.jpg").stat().st_size > 0
     assert len(result.renditions) == 1
+
+
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        ({"duration_exact": Fraction("600.0001")}, "duration"),
+        ({"effective_width": 1921}, "dimensions"),
+        ({"effective_height": 1921}, "dimensions"),
+        ({"effective_width": 1920, "effective_height": 1081}, "dimensions"),
+        ({"frame_rate": Fraction(30001, 1000)}, "frame_rate"),
+        ({"effective_width": 0}, "metadata"),
+        ({"frame_rate": Fraction(0)}, "metadata"),
+        ({"duration_exact": None}, "metadata"),
+        ({"effective_width": None}, "metadata"),
+        ({"rotation_degrees": None}, "metadata"),
+        ({"frame_rate": None}, "metadata"),
+    ],
+)
+def test_media_admission_rejects_over_limit_or_missing_metadata(changes, reason: str) -> None:
+    probe = replace(_admission_probe(), **changes)
+
+    with pytest.raises(ProcessingError) as exc_info:
+        validate_media_policy(probe, config.media_admission_policy())
+
+    assert exc_info.value.code == "MEDIA_POLICY_REJECTED"
+    assert exc_info.value.reason == reason
+    assert exc_info.value.safe_message == f"Uploaded media was rejected by policy ({reason})"
+
+
+def test_media_admission_accepts_exact_all_limits() -> None:
+    validate_media_policy(
+        _admission_probe(
+            duration=Fraction(600),
+            width=1920,
+            height=1080,
+            frame_rate=Fraction(30),
+        ),
+        config.media_admission_policy(),
+    )
+
+
+def test_media_admission_checks_decoded_work_exactly() -> None:
+    exact = _admission_probe(duration=Fraction(600), width=1920, height=1080, frame_rate=Fraction(30))
+    policy = replace(config.media_admission_policy(), max_decoded_work_pixel_frames=37_324_799_999)
+
+    with pytest.raises(ProcessingError) as exc_info:
+        validate_media_policy(exact, policy)
+
+    assert exc_info.value.reason == "work"
+
+
+@pytest.mark.parametrize(
+    ("stream_duration", "format_duration", "avg_rate", "r_rate", "rotation", "expected_duration", "expected_rate", "expected_dims"),
+    [
+        ("599/1", "600.0", "24000/1001", "30/1", None, Fraction(600), Fraction(30), (1920, 1080)),
+        ("N/A", "2.5", "N/A", "24000/1001", {"rotation": -90}, Fraction(5, 2), Fraction(24000, 1001), (1080, 1920)),
+        ("nan", "inf", "0/0", "N/A", None, None, None, (1920, 1080)),
+    ],
+)
+def test_probe_normalizes_duration_rate_and_display_rotation(
+    monkeypatch,
+    tmp_path: Path,
+    stream_duration,
+    format_duration,
+    avg_rate,
+    r_rate,
+    rotation,
+    expected_duration,
+    expected_rate,
+    expected_dims,
+) -> None:
+    stream = {
+        "codec_type": "video",
+        "codec_name": "h264",
+        "width": 1920,
+        "height": 1080,
+        "duration": stream_duration,
+        "avg_frame_rate": avg_rate,
+        "r_frame_rate": r_rate,
+    }
+    if rotation is not None:
+        stream["side_data_list"] = [{"side_data_type": "Display Matrix", **rotation}]
+    command_seen: list[list[str]] = []
+
+    def fake_run(command: list[str], *, timeout: int | None = None):
+        command_seen.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps({"streams": [stream], "format": {"duration": format_duration}}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(packager, "_run", fake_run)
+    probe = probe_media(tmp_path / "source.mp4")
+
+    assert len(command_seen) == 1
+    assert "-print_format" in command_seen[0] and "json" in command_seen[0]
+    assert "-show_entries" in command_seen[0]
+    assert probe.duration_exact == expected_duration
+    assert probe.frame_rate == expected_rate
+    assert (probe.effective_width, probe.effective_height) == expected_dims
+    if expected_duration is not None and expected_rate is not None:
+        validate_media_policy(probe, config.media_admission_policy())
+
+
+@pytest.mark.parametrize("rotation", ["45", "nan", "inf", "bad"])
+def test_probe_marks_invalid_display_rotation_as_metadata(monkeypatch, tmp_path: Path, rotation: str) -> None:
+    payload = {
+        "streams": [
+            {
+                "codec_type": "video",
+                "width": 640,
+                "height": 360,
+                "duration": "2",
+                "avg_frame_rate": "24/1",
+                "r_frame_rate": "24/1",
+                "side_data_list": [{"side_data_type": "Display Matrix", "rotation": rotation}],
+            }
+        ],
+        "format": {},
+    }
+    monkeypatch.setattr(
+        packager,
+        "_run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, json.dumps(payload), ""),
+    )
+
+    probe = probe_media(tmp_path / "source.mp4")
+    with pytest.raises(ProcessingError) as exc_info:
+        validate_media_policy(probe, config.media_admission_policy())
+    assert exc_info.value.reason == "metadata"
+
+
+@pytest.mark.parametrize("dimensions", [(None, 360), (0, 360), (-1, 360), (640, "360.0")])
+def test_probe_rejects_malformed_dimensions_as_policy_metadata(monkeypatch, tmp_path: Path, dimensions) -> None:
+    payload = {
+        "streams": [
+            {
+                "codec_type": "video",
+                "width": dimensions[0],
+                "height": dimensions[1],
+                "duration": "2",
+                "avg_frame_rate": "24/1",
+                "r_frame_rate": "24/1",
+            }
+        ],
+        "format": {},
+    }
+    monkeypatch.setattr(
+        packager,
+        "_run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, json.dumps(payload), ""),
+    )
+
+    probe = probe_media(tmp_path / "source.mp4")
+    with pytest.raises(ProcessingError) as exc_info:
+        validate_media_policy(probe, config.media_admission_policy())
+    assert exc_info.value.reason == "metadata"
+
+
+def test_media_policy_configuration_fails_closed(monkeypatch) -> None:
+    monkeypatch.setenv("ATLAS_MEDIA_MAX_DURATION_SECONDS", "not-a-number")
+    with pytest.raises(ValueError, match="ATLAS_MEDIA_MAX_DURATION_SECONDS"):
+        config.media_admission_policy()
+
+    monkeypatch.setenv("ATLAS_MEDIA_MAX_DURATION_SECONDS", "601")
+    with pytest.raises(ValueError, match="ATLAS_MEDIA_MAX_DURATION_SECONDS"):
+        config.media_admission_policy()
+
+    monkeypatch.delenv("ATLAS_MEDIA_MAX_DURATION_SECONDS")
+    monkeypatch.setenv("ATLAS_MEDIA_MAX_FRAME_RATE", "30/0")
+    with pytest.raises(ValueError, match="ATLAS_MEDIA_MAX_FRAME_RATE"):
+        config.media_admission_policy()
+
+    monkeypatch.delenv("ATLAS_MEDIA_MAX_FRAME_RATE")
+    monkeypatch.setenv("ATLAS_MEDIA_MAX_PIXEL_AREA", "2073601")
+    with pytest.raises(ValueError, match="ATLAS_MEDIA_MAX_PIXEL_AREA"):
+        config.media_admission_policy()
+
+
+def test_ffmpeg_timeout_default_and_invalid_configuration(monkeypatch) -> None:
+    monkeypatch.delenv("ATLAS_FFMPEG_TIMEOUT_SECONDS", raising=False)
+    assert config.ffmpeg_timeout_seconds() == 1800
+    monkeypatch.setenv("ATLAS_FFMPEG_TIMEOUT_SECONDS", "bad")
+    with pytest.raises(ValueError, match="ATLAS_FFMPEG_TIMEOUT_SECONDS"):
+        config.ffmpeg_timeout_seconds()
+    monkeypatch.setenv("ATLAS_FFMPEG_TIMEOUT_SECONDS", "2000")
+    assert config.ffmpeg_timeout_seconds() == 2000
 
 
 def test_probe_rejects_unreadable_media(tmp_path: Path) -> None:
@@ -194,3 +397,26 @@ def _sample_fixture(tmp_path: Path) -> Path:
         timeout=30,
     )
     return generated
+
+
+def _admission_probe(
+    *,
+    duration: Fraction = Fraction(1),
+    width: int = 640,
+    height: int = 360,
+    frame_rate: Fraction = Fraction(24),
+) -> MediaProbe:
+    return MediaProbe(
+        duration_seconds=float(duration),
+        width=width,
+        height=height,
+        video_codec="h264",
+        audio_codec="aac",
+        source_bitrate=1000,
+        has_audio=True,
+        duration_exact=duration,
+        effective_width=width,
+        effective_height=height,
+        rotation_degrees=0,
+        frame_rate=frame_rate,
+    )
