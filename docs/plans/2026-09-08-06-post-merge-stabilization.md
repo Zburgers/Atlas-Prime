@@ -220,6 +220,8 @@ Answer only these:
 
 Do **not** edit worker admission code or choose numeric limits inside the spike. End with status `NEEDS OWNER DECISION: D-014`.
 
+Historical outcome: the research spike ended in that state. The owner subsequently delegated and approved D-014 on 2026-09-29; the full decision is recorded in `docs/decisions/D-014-decoded-media-envelope.md`. Task 6.6 implements that decision separately.
+
 Tasks 6.3–6.5 may proceed after this research artifact is merged because they do not depend on D-014. Task 6.6 may not start until D-014 is explicitly approved and recorded.
 </task>
 
@@ -502,6 +504,8 @@ Add the new focused test filename to the command once created.
 ### Entry gate
 
 **HARD BLOCK:** D-014 from task 6.2 must be explicitly owner-approved and recorded with numeric values and metadata-failure semantics.
+
+Current evidence: approved on 2026-09-29 and recorded in `docs/decisions/D-014-decoded-media-envelope.md`.
 
 If D-014 is absent or ambiguous, stop. Do not infer limits from fixtures, upload bytes, common streaming-provider limits, FFmpeg timeout, or this document.
 

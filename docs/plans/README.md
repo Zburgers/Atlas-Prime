@@ -127,9 +127,9 @@ The local configuration currently has an upload-byte default, but agents must no
 
 ### D-014 — decoded-media processing envelope
 
-**NOT YET DECIDED.**
+**APPROVED BY OWNER-DELEGATED DECISION — 2026-09-29.** The numeric envelope and metadata-failure semantics are recorded in `docs/decisions/D-014-decoded-media-envelope.md`. R-001 remains unchanged.
 
-Plan 6 task 6.2 is a bounded research spike whose only purpose is to produce measured candidate envelopes. Task 6.6 may implement #19 only after the owner explicitly approves D-014.
+Plan 6 task 6.2 remains research-only; its report proposed candidate envelopes but did not itself authorize implementation. Task 6.6 implements #19 only against the approved decision record.
 
 D-014 must decide at least:
 

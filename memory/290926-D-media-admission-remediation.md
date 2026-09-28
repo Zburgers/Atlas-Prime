@@ -25,6 +25,7 @@ Branch/Commit: `codex/plan6-6-media-admission`, based on `63c0d1bc89fac874821abe
 - `workers/media/media_worker/{packager,config,celery_app}.py`
 - `workers/media/tests/{test_packager,test_repository}.py`
 - `.env.example`, `compose.yaml`, `docs/sectors/D-media-processing-packaging.md`
+- `docs/plans/README.md`, `docs/plans/2026-09-08-06-post-merge-stabilization.md`
 - `memory/290926-D-media-admission-remediation.md`
 
 ## Handoff / risks
